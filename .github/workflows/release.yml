@@ -1,0 +1,149 @@
+name: Build and publish release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows installers
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Validate release version
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content Version.props
+          $version = [string]$props.Project.PropertyGroup.Version
+          if (-not $version -or $version -match '-') { throw 'Version.props must contain a stable x.y.z version.' }
+          if ('${{ github.event_name }}' -eq 'push' -and '${{ github.ref_name }}' -ne "v$version") {
+            throw "Tag ${{ github.ref_name }} does not match Version.props ($version)."
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - name: Download and verify llama.cpp runtime
+        id: runtime
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'llama-b10809-bin-win-vulkan-x64.zip'
+          $runtime = Join-Path $env:RUNNER_TEMP 'llama-runtime'
+          Invoke-WebRequest 'https://github.com/ggml-org/llama.cpp/releases/download/b10809/llama-b10809-bin-win-vulkan-x64.zip' -OutFile $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '97e50b3ef0cdd2cb4d5afd446a9006b3496bee6c0d0ba7083d32f36075771870') { throw "llama.cpp archive hash mismatch: $hash" }
+          Expand-Archive -LiteralPath $archive -DestinationPath $runtime
+          $server = Get-ChildItem -LiteralPath $runtime -Filter llama-server.exe -File -Recurse | Select-Object -First 1
+          if (-not $server) { throw 'llama-server.exe is missing from the verified archive.' }
+          "runtime=$($server.Directory.FullName)" >> $env:GITHUB_OUTPUT
+      - name: Build standard and Safe installers
+        shell: pwsh
+        run: |
+          ./tools/Build-Installer.ps1 -RuntimeDirectory '${{ steps.runtime.outputs.runtime }}' -Edition Standard -InputMode Ocr
+          ./tools/Build-Installer.ps1 -RuntimeDirectory '${{ steps.runtime.outputs.runtime }}' -Edition Safe -InputMode Ocr
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: |
+            release/*.exe
+            release/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  linux:
+    name: Linux packages
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Install package build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev ffmpeg gcc libdbus-1-dev pkg-config
+      - name: Validate release version
+        id: version
+        shell: bash
+        run: |
+          version="$(python3 -c 'import xml.etree.ElementTree as E; print(E.parse("Version.props").findtext("./PropertyGroup/Version"))')"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match Version.props ($version)." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Download and verify llama.cpp runtime
+        id: runtime
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/llama-b10809-bin-ubuntu-vulkan-x64.tar.gz"
+          runtime="$RUNNER_TEMP/llama-runtime"
+          curl --fail --location --retry 3 --output "$archive" \
+            https://github.com/ggml-org/llama.cpp/releases/download/b10809/llama-b10809-bin-ubuntu-vulkan-x64.tar.gz
+          echo '07f029cef440c82c3cff5310641eb6347e5cbcd865a5d88990215058aa049e93  '"$archive" | sha256sum --check
+          mkdir -p "$runtime"
+          tar -xzf "$archive" -C "$runtime"
+          server="$(find "$runtime" -type f -name llama-server -print -quit)"
+          test -n "$server"
+          echo "runtime=$(dirname "$server")" >> "$GITHUB_OUTPUT"
+      - name: Build standard Linux package
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          RUNTIME: ${{ steps.runtime.outputs.runtime }}
+        run: |
+          work="$GITHUB_WORKSPACE/.work/linux-Standard"
+          mkdir -p "$work/payload" release
+          dotnet publish code/BigBlueFish.Linux/BigBlueFish.Linux.csproj -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -o "$work/payload" --nologo
+          dotnet publish code/BigBlueFish.Mcp/BigBlueFish.Mcp.csproj -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -o "$work/payload" --nologo
+          bash tools/build-linux-deb.sh "$GITHUB_WORKSPACE" "$work" "$RUNTIME" "$GITHUB_WORKSPACE/release" "$VERSION" Standard
+      - name: Build Safe Linux package
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          RUNTIME: ${{ steps.runtime.outputs.runtime }}
+        run: |
+          work="$GITHUB_WORKSPACE/.work/linux-Safe"
+          mkdir -p "$work/payload" release
+          dotnet publish code/BigBlueFish.Linux/BigBlueFish.Linux.csproj -c Release -r linux-x64 --self-contained true -p:CompanionEdition=Safe -p:RestoreLockedMode=true -o "$work/payload" --nologo
+          bash tools/build-linux-deb.sh "$GITHUB_WORKSPACE" "$work" "$RUNTIME" "$GITHUB_WORKSPACE/release" "$VERSION" Safe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            release/*.deb
+            release/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub Release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+      - name: Verify all release assets are present
+        shell: bash
+        run: |
+          find release-assets -type f -print
+          test "$(find release-assets -type f -name '*.exe' | wc -l)" -eq 2
+          test "$(find release-assets -type f -name '*.deb' | wc -l)" -eq 2
+          test "$(find release-assets -type f -name '*.sha256' | wc -l)" -eq 4
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Big Blue Fish ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release-assets/**
+          fail_on_unmatched_files: true
