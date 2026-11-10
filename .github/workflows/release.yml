@@ -86,7 +86,7 @@ jobs:
           runtime="$RUNNER_TEMP/llama-runtime"
           curl --fail --location --retry 3 --output "$archive" \
             https://github.com/ggml-org/llama.cpp/releases/download/b10809/llama-b10809-bin-ubuntu-vulkan-x64.tar.gz
-          echo '07f029cef440c82c3cff5310641eb6347e5cbcd865a5d88990215058aa049e93  '"$archive" | sha256sum --check
+          printf '%s  %s\n' '07f029cef440c82c3cff5310641eb6347e5cbcd865a5d88990215058aa049e93' "$archive" | sha256sum --check
           mkdir -p "$runtime"
           tar -xzf "$archive" -C "$runtime"
           server="$(find "$runtime" -type f -name llama-server -print -quit)"
