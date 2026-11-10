@@ -120,7 +120,9 @@ public partial class MainWindow
         Background = null;
         WindowStyle = WindowStyle.None;
         ShowActivated = false;
-        ShowInTaskbar = false;
+        // Keep the pet as a normal app window so external capture APIs and
+        // window pickers can enumerate its HWND. Tool windows are commonly filtered.
+        ShowInTaskbar = true;
         Topmost = true;
         Title = "蓝色大肥鱼";
         ResizeMode = ResizeMode.NoResize;
