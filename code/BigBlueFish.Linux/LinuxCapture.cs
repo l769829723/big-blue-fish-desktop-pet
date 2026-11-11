@@ -174,11 +174,12 @@ internal static class CompanionNative
         using var image = SKImage.FromBitmap(small ?? bitmap); using var png = image.Encode(SKEncodedImageFormat.Png, 100);
         return new("data:image/png;base64," + Convert.ToBase64String(png.ToArray()), image.Width, image.Height);
     }
-    internal static void SetInputShape(IntPtr window,byte[] pixels,int width,int height,double scale,bool mirror,
+    internal static void SetInputShape(IntPtr window,byte[] pixels,int width,int height,double scale,double desktopScaling,bool mirror,
         double overlayX = 0,double overlayY = 0,double overlayWidth = 0,double overlayHeight = 0,double spriteOffsetY = 0)
     {
         if (display == IntPtr.Zero || window == IntPtr.Zero) return;
         var regions = new List<XRectangle>();
+        // Animation samples use source pixels; the sprite offset and bubble bounds use DIPs.
         for (int y = 0; y < height; y++)
         {
             int start = -1;
@@ -188,16 +189,16 @@ internal static class CompanionNative
                 if (opaque && start < 0) start = x;
                 if (!opaque && start >= 0) {
                     int left = mirror ? width - x : start;
-                    regions.Add(new() { x = (short)Math.Floor(left * scale), y = (short)Math.Floor((y + spriteOffsetY) * scale), width = (ushort)Math.Max(1, Math.Ceiling((x - start) * scale)), height = (ushort)Math.Max(1, Math.Ceiling(scale)) }); start = -1;
+                    regions.Add(new() { x = (short)Math.Floor(left * scale), y = (short)Math.Floor(y * scale + spriteOffsetY * desktopScaling), width = (ushort)Math.Max(1, Math.Ceiling((x - start) * scale)), height = (ushort)Math.Max(1, Math.Ceiling(scale)) }); start = -1;
                 }
             }
         }
         if (overlayWidth > 0 && overlayHeight > 0)
             regions.Add(new() {
-                x = (short)Math.Floor(overlayX * scale),
-                y = (short)Math.Floor(overlayY * scale),
-                width = (ushort)Math.Clamp(Math.Ceiling(overlayWidth * scale), 1, ushort.MaxValue),
-                height = (ushort)Math.Clamp(Math.Ceiling(overlayHeight * scale), 1, ushort.MaxValue)
+                x = (short)Math.Floor(overlayX * desktopScaling),
+                y = (short)Math.Floor(overlayY * desktopScaling),
+                width = (ushort)Math.Clamp(Math.Ceiling(overlayWidth * desktopScaling), 1, ushort.MaxValue),
+                height = (ushort)Math.Clamp(Math.Ceiling(overlayHeight * desktopScaling), 1, ushort.MaxValue)
             });
         lock (gate) { XShapeCombineRectangles(display, (ulong)window.ToInt64(), 2, 0, 0, regions.ToArray(), regions.Count, 0, 0); XFlush(display); }
     }

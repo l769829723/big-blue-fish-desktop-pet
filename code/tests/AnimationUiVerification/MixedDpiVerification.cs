@@ -23,11 +23,12 @@ internal static partial class Program
     }
     static void VerifyMixedDpi(MainWindow w)
     {
+        VerifyNativeMouseRouting();
         foreach(var screen in System.Windows.Forms.Screen.AllScreens)
         {
             var area=screen.WorkingArea;
             Check(SetWindowPos(Handle(w),IntPtr.Zero,area.Left+area.Width/2-320,area.Top+area.Height/2-180,0,0,0x15),"move pet to monitor "+screen.DeviceName);Pump(200);
-            Invoke(w,"ClampCompanion");Invoke(w,"ShowCompanionNotice","主人，鱼鱼陪你检查不同缩放的屏幕呀~",false);Pump(180);
+            Invoke(w,"ClampCompanion");Invoke(w,"ShowCompanionNotice",string.Concat(Enumerable.Repeat("主人，鱼鱼陪你检查不同缩放的屏幕呀，气泡应完整显示在采集画面中。",4)),false);Pump(180);
             var pet=PhysicalRect(Handle(w));
             var bubble=new NativeRect();
             var bubbleElement=(Border)Read(w,"bubble");

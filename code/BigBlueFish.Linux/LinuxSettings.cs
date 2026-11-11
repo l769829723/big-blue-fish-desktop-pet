@@ -137,56 +137,92 @@ internal sealed partial class LinuxPetWindow
             CheckBox? weatherEnabled = null, newsEnabled = null;
             bool synchronizingPublicInfo = false;
             int publicInfoIndex = body.Children.Count;
-            int RoleIndex() => Preferences.SpeakerRole == "assistant" ? 0
-                : Preferences.SpeakerRole == "owner" ? 1
-                : Math.Max(0, Preferences.CustomRoles.FindIndex(role => role.Id == Preferences.SpeakerRole) + 2);
-            var roleSelect = Select("角色定位", new[] { "助手（默认）", "主人" }.Concat(Preferences.CustomRoles.Select(role => role.Name)).ToArray(), RoleIndex(), _ => { });
+            int RoleIndex()
+            {
+                if (Preferences.SpeakerRole == "assistant") return 0;
+                if (Preferences.SpeakerRole == "owner") return 1;
+                int roleIndex = Preferences.CustomRoles.FindIndex(role => role.Id == Preferences.SpeakerRole);
+                return roleIndex >= 0 ? roleIndex + 2 : 0;
+            }
+            body.Children.Add(new TextBlock { Text = "角色定位", Margin = new Thickness(0, 10, 0, 4) });
+            var roleSelect = new ComboBox
+            {
+                ItemsSource = new[] { "助手（默认）", "主人" }.Concat(Preferences.CustomRoles.Select(role => role.Name)).ToArray(),
+                SelectedIndex = RoleIndex(),
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+            body.Children.Add(roleSelect);
             var roleName = new TextBox { Text = "新角色", MaxLength = 40, Width = 220 };
             var roleError = Paragraph("");
             Button addRole = null!, removeRole = null!;
             var rolePromptEditors = new TextBox[3];
             var rolePromptHeaders = new TextBlock[3];
+            bool updatingRoleControls = false;
+            string displayedRoleId = Preferences.SpeakerRole;
             var roleActions = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
             addRole = ActionButton("新增角色", () => {
-                try { Preferences.AddCustomRole(roleName.Text ?? ""); roleError.Text = ""; ApplySettings(); RefreshRoleControls(); }
+                try { CommitRolePrompts(); Preferences.AddCustomRole(roleName.Text ?? ""); roleError.Text = ""; ApplyRoleChanges(); RefreshRoleControls(); }
                 catch (Exception error) { roleError.Text = error.Message; }
             });
             removeRole = ActionButton("删除角色", () => {
                 var profile = Preferences.SelectedCustomRole;
                 if (profile == null) return;
-                Preferences.CustomRoles.Remove(profile); Preferences.SpeakerRole = "assistant"; ApplySettings(); RefreshRoleControls();
+                CommitRolePrompts();
+                Preferences.CustomRoles.Remove(profile); Preferences.SpeakerRole = "assistant"; ApplyRoleChanges(); RefreshRoleControls();
             });
             roleActions.Children.Add(roleName); roleActions.Children.Add(addRole); roleActions.Children.Add(removeRole);
             body.Children.Add(roleActions); body.Children.Add(roleError);
             body.Children.Add(Paragraph("可为不同角色分别设置普通说话、天气和新闻提示词；时间、屏幕与公共信息由程序单独提供，无需模板变量。"));
-            bool updatingRoleControls = false;
-            string RolePrompt(int index) {
-                var profile = Preferences.SelectedCustomRole;
+            void ApplyRoleChanges()
+            {
+                speechVersion++;
+                brain.CancelGeneration();
+                loading.IsVisible = false;
+                Preferences.ApplySpeakerRole(brain);
+                Save();
+            }
+            CompanionRoleProfile? RoleProfile(string roleId) => Preferences.CustomRoles.FirstOrDefault(role => role.Id == roleId);
+            string RolePrompt(string roleId, int index) {
+                var profile = RoleProfile(roleId);
                 if (profile != null) return index switch { 0 => profile.Prompt, 1 => profile.WeatherPrompt, _ => profile.NewsPrompt };
                 return index switch { 0 => Preferences.OwnerPrompt, 1 => Preferences.OwnerWeatherPrompt, _ => Preferences.OwnerNewsPrompt };
             }
-            string DefaultRolePrompt(int index) {
-                var profile = Preferences.SelectedCustomRole;
+            string DefaultRolePrompt(string roleId, int index) {
+                var profile = RoleProfile(roleId);
                 if (profile != null) {
                     var defaults = CompanionRoleProfile.Create(profile.Name);
                     return index switch { 0 => defaults.Prompt, 1 => defaults.WeatherPrompt, _ => defaults.NewsPrompt };
                 }
                 return index switch { 0 => CompanionDialogue.OwnerPromptDefault, 1 => CompanionDialogue.OwnerWeatherPromptDefault, _ => CompanionDialogue.OwnerNewsPromptDefault };
             }
-            void SaveRolePrompt(int index, string text) {
-                var profile = Preferences.SelectedCustomRole;
+            void SaveRolePrompt(string roleId, int index, string text) {
+                var profile = RoleProfile(roleId);
                 if (profile != null) {
                     if (index == 0) profile.Prompt = text; else if (index == 1) profile.WeatherPrompt = text; else profile.NewsPrompt = text;
                 } else {
                     if (index == 0) Preferences.OwnerPrompt = text; else if (index == 1) Preferences.OwnerWeatherPrompt = text; else Preferences.OwnerNewsPrompt = text;
                 }
-                ApplySettings();
+                ApplyRoleChanges();
             }
-            void RefreshRoleControls() {
-                updatingRoleControls = true;
-                roleSelect.ItemsSource = new[] { "助手（默认）", "主人" }.Concat(Preferences.CustomRoles.Select(role => role.Name)).ToArray();
-                roleSelect.SelectedIndex = RoleIndex();
+            void CommitRolePrompts() {
+                bool changed = false;
+                var profile = RoleProfile(displayedRoleId);
+                for (int i = 0; i < rolePromptEditors.Length; i++) {
+                    string text = rolePromptEditors[i].Text ?? "";
+                    if (string.IsNullOrWhiteSpace(text) && i != 1) text = DefaultRolePrompt(displayedRoleId, i);
+                    if (text == RolePrompt(displayedRoleId, i)) continue;
+                    if (profile != null) {
+                        if (i == 0) profile.Prompt = text; else if (i == 1) profile.WeatherPrompt = text; else profile.NewsPrompt = text;
+                    } else {
+                        if (i == 0) Preferences.OwnerPrompt = text; else if (i == 1) Preferences.OwnerWeatherPrompt = text; else Preferences.OwnerNewsPrompt = text;
+                    }
+                    changed = true;
+                }
+                if (changed) ApplyRoleChanges();
+            }
+            void RefreshRoleEditors() {
                 var profile = Preferences.SelectedCustomRole;
+                displayedRoleId = Preferences.SpeakerRole;
                 roleName.Text = profile?.Name ?? "";
                 roleName.IsEnabled = profile != null;
                 removeRole.IsEnabled = profile != null;
@@ -194,15 +230,32 @@ internal sealed partial class LinuxPetWindow
                 for (int i = 0; i < rolePromptEditors.Length; i++) {
                     string suffix = i switch { 0 => "普通说话提示词", 1 => "天气提示词", _ => "科技新闻提示词" };
                     rolePromptHeaders[i].Text = profile == null ? "主人" + suffix : profile.Name + suffix;
-                    rolePromptEditors[i].Text = RolePrompt(i);
+                    rolePromptEditors[i].Text = RolePrompt(displayedRoleId, i);
                 }
-                updatingRoleControls = false;
+            }
+            void RefreshRoleControls() {
+                updatingRoleControls = true;
+                try {
+                    roleSelect.ItemsSource = new[] { "助手（默认）", "主人" }.Concat(Preferences.CustomRoles.Select(role => role.Name)).ToArray();
+                    roleSelect.SelectedIndex = RoleIndex();
+                    RefreshRoleEditors();
+                }
+                finally { updatingRoleControls = false; }
             }
             roleSelect.SelectionChanged += (_, _) => {
                 if (updatingRoleControls || roleSelect.SelectedIndex < 0) return;
                 int value = roleSelect.SelectedIndex;
-                Preferences.SpeakerRole = value switch { 0 => "assistant", 1 => "owner", _ => Preferences.CustomRoles[value - 2].Id };
-                ApplySettings(); RefreshRoleControls();
+                if (value >= 2 && value - 2 >= Preferences.CustomRoles.Count) { RefreshRoleControls(); return; }
+                try {
+                    CommitRolePrompts();
+                    Preferences.SpeakerRole = value switch { 0 => "assistant", 1 => "owner", _ => Preferences.CustomRoles[value - 2].Id };
+                    ApplyRoleChanges();
+                    RefreshRoleEditors();
+                } catch (Exception error) {
+                    DiagnosticLog.Write(DiagnosticEvent.SettingsChanged, kind: "speaker-role", state: "failed", error: error);
+                    roleError.Text = "身份设定未能应用：" + error.Message;
+                    RefreshRoleControls();
+                }
             };
             roleName.LostFocus += (_, _) => {
                 var profile = Preferences.SelectedCustomRole;
@@ -211,23 +264,24 @@ internal sealed partial class LinuxPetWindow
                 if (Preferences.CustomRoles.Any(role => role != profile && string.Equals(role.Name, name, StringComparison.OrdinalIgnoreCase))) {
                     roleError.Text = "角色名称已存在，请使用不同的名称。"; RefreshRoleControls(); return;
                 }
-                if (profile.Name != name) { profile.Name = name; roleError.Text = ""; ApplySettings(); RefreshRoleControls(); }
+                if (profile.Name != name) { CommitRolePrompts(); profile.Name = name; roleError.Text = ""; ApplyRoleChanges(); RefreshRoleControls(); }
             };
             void RolePromptEditor(int index) {
                 string suffix = index switch { 0 => "普通说话提示词", 1 => "天气提示词", _ => "科技新闻提示词" };
-                var editor = new TextBox { Text = RolePrompt(index), AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                var editor = new TextBox { Text = RolePrompt(displayedRoleId, index), AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
                     Height = index == 0 ? 210 : 120, MaxLength = 16000 };
                 rolePromptEditors[index] = editor;
                 var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(0, 8, 0, 2) };
                 var heading = rolePromptHeaders[index] = new TextBlock { VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
                 header.Children.Add(heading);
-                var reset = ActionButton("恢复默认", () => { string value = DefaultRolePrompt(index); editor.Text = value; SaveRolePrompt(index, value); });
+                var reset = ActionButton("恢复默认", () => { string roleId = displayedRoleId; string value = DefaultRolePrompt(roleId, index); editor.Text = value; SaveRolePrompt(roleId, index, value); });
                 Grid.SetColumn(reset, 1); header.Children.Add(reset); body.Children.Add(header);
                 editor.LostFocus += (_, _) => {
+                    string roleId = displayedRoleId;
                     var text = editor.Text ?? "";
-                    if (string.IsNullOrWhiteSpace(text) && index != 1) text = DefaultRolePrompt(index);
+                    if (string.IsNullOrWhiteSpace(text) && index != 1) text = DefaultRolePrompt(roleId, index);
                     editor.Text = text;
-                    if (text != RolePrompt(index)) SaveRolePrompt(index, text);
+                    if (text != RolePrompt(roleId, index)) SaveRolePrompt(roleId, index, text);
                 };
                 body.Children.Add(editor);
             }

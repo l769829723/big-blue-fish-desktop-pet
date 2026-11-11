@@ -224,6 +224,7 @@ public partial class MainWindow
         roleActions.Children.Add(removeRole);
         p.Children.Add(roleActions);
         bool updatingRoleControls = false;
+        string displayedRoleId = preferences.SpeakerRole;
         var rolePromptEditors = new TextBox[3];
         var rolePromptHeaders = new TextBlock[3];
         int SelectedRoleIndex() => speakerRole.SelectedIndex;
@@ -233,12 +234,10 @@ public partial class MainWindow
         int RoleIndex() => preferences.SpeakerRole == "assistant" ? 0
             : preferences.SpeakerRole == "owner" ? 1
             : Math.Max(0, preferences.CustomRoles.FindIndex(role => role.Id == preferences.SpeakerRole) + 2);
-        void RefreshRoleControls()
+        void RefreshRoleEditors()
         {
-            updatingRoleControls = true;
-            speakerRole.ItemsSource = RoleOptions();
-            speakerRole.SelectedIndex = RoleIndex();
             var profile = ActiveRole();
+            displayedRoleId = preferences.SpeakerRole;
             roleName.Text = profile?.Name ?? "";
             roleName.IsEnabled = profile != null;
             removeRole.IsEnabled = profile != null;
@@ -248,20 +247,31 @@ public partial class MainWindow
                 string suffix = i switch { 0 => "普通说话提示词", 1 => "天气提示词", _ => "科技新闻提示词" };
                 string label = profile == null ? "主人" + suffix : profile.Name + suffix;
                 rolePromptHeaders[i].Text = label;
-                rolePromptEditors[i].Text = RolePrompt(i);
+                rolePromptEditors[i].Text = RolePrompt(displayedRoleId, i);
                 System.Windows.Automation.AutomationProperties.SetName(rolePromptEditors[i], label);
             }
-            updatingRoleControls = false;
         }
-        string RolePrompt(int index)
+        void RefreshRoleControls()
         {
-            var profile = ActiveRole();
+            updatingRoleControls = true;
+            try
+            {
+                speakerRole.ItemsSource = RoleOptions();
+                speakerRole.SelectedIndex = RoleIndex();
+                RefreshRoleEditors();
+            }
+            finally { updatingRoleControls = false; }
+        }
+        CompanionRoleProfile? RoleProfile(string roleId) => preferences.CustomRoles.FirstOrDefault(role => role.Id == roleId);
+        string RolePrompt(string roleId, int index)
+        {
+            var profile = RoleProfile(roleId);
             if (profile != null) return index switch { 0 => profile.Prompt, 1 => profile.WeatherPrompt, _ => profile.NewsPrompt };
             return index switch { 0 => preferences.OwnerPrompt, 1 => preferences.OwnerWeatherPrompt, _ => preferences.OwnerNewsPrompt };
         }
-        string DefaultRolePrompt(int index)
+        string DefaultRolePrompt(string roleId, int index)
         {
-            var profile = ActiveRole();
+            var profile = RoleProfile(roleId);
             if (profile != null)
             {
                 var defaults = CompanionRoleProfile.Create(profile.Name);
@@ -269,9 +279,9 @@ public partial class MainWindow
             }
             return index switch { 0 => CompanionDialogue.OwnerPromptDefault, 1 => CompanionDialogue.OwnerWeatherPromptDefault, _ => CompanionDialogue.OwnerNewsPromptDefault };
         }
-        void SaveRolePrompt(int index, string text)
+        void SaveRolePrompt(string roleId, int index, string text)
         {
-            var profile = ActiveRole();
+            var profile = RoleProfile(roleId);
             if (profile != null)
             {
                 if (index == 0) profile.Prompt = text;
@@ -288,20 +298,66 @@ public partial class MainWindow
             InvalidateSpeechRequests();
             SaveCompanion();
         }
+        void CommitRolePrompts()
+        {
+            bool changed = false;
+            var profile = RoleProfile(displayedRoleId);
+            for (int i = 0; i < rolePromptEditors.Length; i++)
+            {
+                string text = rolePromptEditors[i].Text;
+                if (string.IsNullOrWhiteSpace(text) && i != 1) text = DefaultRolePrompt(displayedRoleId, i);
+                if (text == RolePrompt(displayedRoleId, i)) continue;
+                if (profile != null)
+                {
+                    if (i == 0) profile.Prompt = text;
+                    else if (i == 1) profile.WeatherPrompt = text;
+                    else profile.NewsPrompt = text;
+                }
+                else
+                {
+                    if (i == 0) preferences.OwnerPrompt = text;
+                    else if (i == 1) preferences.OwnerWeatherPrompt = text;
+                    else preferences.OwnerNewsPrompt = text;
+                }
+                changed = true;
+            }
+            if (changed)
+            {
+                preferences.ApplySpeakerRole(brain);
+                InvalidateSpeechRequests();
+                SaveCompanion();
+            }
+        }
         speakerRole.SelectionChanged += (_, _) =>
         {
             if (updatingRoleControls || speakerRole.SelectedIndex < 0) return;
             int index = speakerRole.SelectedIndex;
-            preferences.SpeakerRole = index switch { 0 => "assistant", 1 => "owner", _ => preferences.CustomRoles[index - 2].Id };
-            preferences.ApplySpeakerRole(brain);
-            RefreshRoleControls();
-            InvalidateSpeechRequests();
-            SaveCompanion();
+            if (index >= 2 && index - 2 >= preferences.CustomRoles.Count)
+            {
+                RefreshRoleControls();
+                return;
+            }
+            try
+            {
+                CommitRolePrompts();
+                preferences.SpeakerRole = index switch { 0 => "assistant", 1 => "owner", _ => preferences.CustomRoles[index - 2].Id };
+                preferences.ApplySpeakerRole(brain);
+                RefreshRoleEditors();
+                InvalidateSpeechRequests();
+                SaveCompanion();
+            }
+            catch (Exception error)
+            {
+                BigBlueFish.Diagnostics.DiagnosticLog.Write(BigBlueFish.Diagnostics.DiagnosticEvent.SettingsChanged, kind: "speaker-role", state: "failed", error: error);
+                RefreshRoleControls();
+                BigBlueFish.Deployment.ModernUI.Error(w, "身份设定未能应用", error);
+            }
         };
         addRole.Click += (_, _) =>
         {
             try
             {
+                CommitRolePrompts();
                 preferences.AddCustomRole(roleName.Text);
                 preferences.ApplySpeakerRole(brain);
                 RefreshRoleControls();
@@ -314,6 +370,7 @@ public partial class MainWindow
         {
             var profile = ActiveRole();
             if (profile == null) return;
+            CommitRolePrompts();
             preferences.CustomRoles.Remove(profile);
             preferences.SpeakerRole = "assistant";
             preferences.ApplySpeakerRole(brain);
@@ -334,6 +391,7 @@ public partial class MainWindow
             }
             if (name != profile.Name)
             {
+                CommitRolePrompts();
                 profile.Name = name;
                 preferences.ApplySpeakerRole(brain);
                 RefreshRoleControls();
@@ -360,7 +418,7 @@ public partial class MainWindow
             p.Children.Add(header);
             var editor = new TextBox
             {
-                Text = RolePrompt(index),
+                Text = RolePrompt(displayedRoleId, index),
                 AcceptsReturn = true,
                 TextWrapping = TextWrapping.Wrap,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -370,19 +428,20 @@ public partial class MainWindow
             rolePromptEditors[index] = editor;
             System.Windows.Automation.AutomationProperties.SetName(editor, heading.Text);
             p.Children.Add(editor);
-            void SavePrompt(string text)
+            void SavePrompt(string roleId, string text)
             {
-                if (string.IsNullOrWhiteSpace(text) && index != 1) text = DefaultRolePrompt(index);
+                if (string.IsNullOrWhiteSpace(text) && index != 1) text = DefaultRolePrompt(roleId, index);
                 editor.Text = text;
-                SaveRolePrompt(index, text);
+                SaveRolePrompt(roleId, index, text);
             }
             editor.LostKeyboardFocus += (_, _) =>
             {
+                string roleId = displayedRoleId;
                 string text = editor.Text;
-                if (string.IsNullOrWhiteSpace(text) && index != 1) text = DefaultRolePrompt(index);
-                if (text != RolePrompt(index)) SavePrompt(text);
+                if (string.IsNullOrWhiteSpace(text) && index != 1) text = DefaultRolePrompt(roleId, index);
+                if (text != RolePrompt(roleId, index)) SavePrompt(roleId, text);
             };
-            reset.Click += (_, _) => SavePrompt(DefaultRolePrompt(index));
+            reset.Click += (_, _) => SavePrompt(displayedRoleId, DefaultRolePrompt(displayedRoleId, index));
         }
         RolePromptEditor(0, "普通说话提示词");
         RolePromptEditor(1, "天气提示词");

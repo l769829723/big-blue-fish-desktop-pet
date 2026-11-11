@@ -177,7 +177,7 @@ public static class CompanionEdgeLayout
             double baseHeight = SpriteSize(pet) + 35.0;
             Rect oldBounds = PetBounds(pet);
             double characterTop = pet.Top + oldBounds.Top;
-            double baseTop = baseHeight - SpriteSize(pet) + 58.0;
+            double baseTop = baseHeight - SpriteSize(pet) + SpriteSize(pet) * 58.0 / 360.0;
             double extraHeight = Math.Max(0, bubbleHeight - baseTop);
             double targetHeight = baseHeight + extraHeight;
             if (Math.Abs(pet.Height - targetHeight) < 0.5) return;

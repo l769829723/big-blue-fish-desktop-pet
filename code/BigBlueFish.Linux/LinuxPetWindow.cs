@@ -275,7 +275,7 @@ internal sealed partial class LinuxPetWindow : Window
         if (lastPresentedPixels == null || lastPresentedWidth <= 0) return;
         double scale = Width * DesktopScaling / lastPresentedWidth;
         CompanionNative.SetInputShape(TryGetPlatformHandle()?.Handle ?? IntPtr.Zero, lastPresentedPixels,
-            lastPresentedWidth, lastPresentedHeight, scale, lastPresentedMirror,
+            lastPresentedWidth, lastPresentedHeight, scale, DesktopScaling, lastPresentedMirror,
             bubbleFrame.IsVisible ? Canvas.GetLeft(bubbleFrame) : 0,
             bubbleFrame.IsVisible ? Canvas.GetTop(bubbleFrame) : 0,
             bubbleFrame.IsVisible ? bubbleFrame.Width : 0,

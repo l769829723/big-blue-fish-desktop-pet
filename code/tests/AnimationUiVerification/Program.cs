@@ -44,9 +44,29 @@ internal static partial class Program
         var prefs=Read(w,"preferences");
         var readPrefs=prefs.GetType().GetMethod("Read",Access)!;
         Check(Property<double>(prefs,"BubbleScale")==1,"old settings default bubble to 100 percent");
+        prefs.GetType().GetMethod("AddCustomRole",Access)!.Invoke(prefs,new object[]{"旅行顾问"});
+        prefs.GetType().GetMethod("AddCustomRole",Access)!.Invoke(prefs,new object[]{"天气伙伴"});
+        Set(prefs,"SpeakerRole","assistant");
         Invoke(w,"OpenCompanionSettings");Pump(100);
         var settings=(Window)Read(w,"companionSettings");
         Children<Button>(settings).Single(b=>b.Content?.ToString()=="说话与天气").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Pump();
+        var role=Children<ComboBox>(settings).Single(c=>c.Items.Count==4&&c.Items[0]?.ToString()=="助手（默认）");
+        var firstRole=Property<System.Collections.Generic.List<CompanionRoleProfile>>(prefs,"CustomRoles")[0];
+        var secondRole=Property<System.Collections.Generic.List<CompanionRoleProfile>>(prefs,"CustomRoles")[1];
+        var prompts=Children<TextBox>(settings).Where(editor=>editor.MaxLength==16000).ToArray();
+        Check(prompts.Length==3,"three role-specific prompts are visible");
+        prompts[0].Text="回归测试：默认身份普通提示词";role.SelectedIndex=2;Pump();
+        Check(Property<string>(prefs,"OwnerPrompt")==prompts[0].Text&&prompts[0].Text==firstRole.Prompt,"changing role commits the edited prompt to its original role and refreshes the editor");
+        prompts[1].Text="回归测试：角色甲天气提示词";role.SelectedIndex=3;Pump();
+        Check(firstRole.WeatherPrompt=="回归测试：角色甲天气提示词"&&prompts[1].Text==secondRole.WeatherPrompt,"weather prompt follows the selected role without stale focus overwriting it");
+        prompts[2].Text="回归测试：角色乙新闻提示词";role.SelectedIndex=2;Pump();
+        Check(secondRole.NewsPrompt=="回归测试：角色乙新闻提示词"&&prompts[2].Text==firstRole.NewsPrompt,"news prompt commits to its source role and refreshes on selection");
+        foreach(var index in new[]{1,2,3,0,3,2,1,0})
+        {
+            role.SelectedIndex=index;
+            Check(role.SelectedIndex==index,"rapid identity selection remains valid "+index);
+        }
+        Check(Property<string>(prefs,"SpeakerRole")=="assistant","rapid identity changes return to the default role");
         var slider=Children<Slider>(settings).Single(s=>System.Windows.Automation.AutomationProperties.GetName(s)=="文字气泡大小");
         Check(slider.IsVisible&&slider.Minimum==.5&&slider.Maximum==2&&slider.TickFrequency==.05,"independent bubble slider visible with range and steps");
         var bubble=(Border)Read(w,"bubble");var text=(TextBlock)Read(w,"bubbleText");
@@ -85,6 +105,22 @@ internal static partial class Program
             Check(Property<double>(readPrefs.Invoke(null,null)!,"BubbleScale")==sample.Expected,"loaded bubble scale clamps to range");
         }
         Console.WriteLine($"Bubble scale: {checks} real WPF checks passed.");
+    }
+    static void VerifyNativeMouseRouting()
+    {
+        var root=new Grid();
+        var image=new Image();
+        root.Children.Add(image);
+        bool leftDown=false,rightDown=false,leftUp=false,rightUp=false;
+        root.AddHandler(UIElement.PreviewMouseLeftButtonDownEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>leftDown=true),true);
+        root.AddHandler(UIElement.PreviewMouseRightButtonDownEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>rightDown=true),true);
+        root.AddHandler(UIElement.PreviewMouseLeftButtonUpEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>leftUp=true),true);
+        root.AddHandler(UIElement.PreviewMouseRightButtonUpEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>rightUp=true),true);
+        CompanionComposition.RaiseButtonEvents(image,0x201);
+        CompanionComposition.RaiseButtonEvents(image,0x204);
+        CompanionComposition.RaiseButtonEvents(image,0x202);
+        CompanionComposition.RaiseButtonEvents(image,0x205);
+        Check(leftDown&&rightDown&&leftUp&&rightUp,"native surface forwards left/right button events to their WPF routed handlers");
     }
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern IntPtr GetForegroundWindow();
