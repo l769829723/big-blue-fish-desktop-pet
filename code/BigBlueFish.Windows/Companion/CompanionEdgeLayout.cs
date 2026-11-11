@@ -13,6 +13,8 @@ using System.Windows.Threading;
 // Positions the visible character at the monitor edge and keeps its separate bubble inside the work area.
 public static class CompanionEdgeLayout
 {
+    private static int bubbleVisible;
+    internal static bool HasVisibleBubble => System.Threading.Volatile.Read(ref bubbleVisible) != 0;
     private sealed class Follow
     {
         private readonly Window pet;
@@ -55,6 +57,7 @@ public static class CompanionEdgeLayout
 
         private void Changed(object? s, EventArgs e)
         {
+            System.Threading.Volatile.Write(ref bubbleVisible, bubble.Visibility == Visibility.Visible ? 1 : 0);
             Update();
             QueueUpdate();
         }
@@ -74,6 +77,7 @@ public static class CompanionEdgeLayout
 
         private void Visible(object s, DependencyPropertyChangedEventArgs e)
         {
+            System.Threading.Volatile.Write(ref bubbleVisible, bubble.Visibility == Visibility.Visible ? 1 : 0);
             Update();
         }
 
@@ -149,6 +153,7 @@ public static class CompanionEdgeLayout
             {
                 if (!pet.IsVisible || bubble.Visibility != Visibility.Visible)
                 {
+                    System.Threading.Volatile.Write(ref bubbleVisible, 0);
                     if (popup.IsVisible)
                     {
                         popup.Hide();
@@ -200,6 +205,7 @@ public static class CompanionEdgeLayout
                     Place(left, top);
                     QueueUpdate();
                 }
+                System.Threading.Volatile.Write(ref bubbleVisible, 1);
             }
             finally
             {

@@ -77,9 +77,18 @@ internal static class CompanionScreenCapture
         using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
         using (var graphics = Graphics.FromImage(bitmap))
         {
-            var target = graphics.GetHdc();
-            var captured = PrintWindow(handle, target, PrintWindowRenderFullContent);
-            graphics.ReleaseHdc(target);
+            bool captured;
+            if (CompanionEdgeLayout.HasVisibleBubble)
+            {
+                graphics.CopyFromScreen(windowRect.Left, windowRect.Top, 0, 0, windowRect.Size, CopyPixelOperation.SourceCopy);
+                captured = true;
+            }
+            else
+            {
+                var target = graphics.GetHdc();
+                captured = PrintWindow(handle, target, PrintWindowRenderFullContent);
+                graphics.ReleaseHdc(target);
+            }
             if (!captured)
             {
                 using var screen = Graphics.FromImage(bitmap);

@@ -147,6 +147,14 @@ public partial class MainWindow
                 nextSpeech = DateTime.UtcNow.AddSeconds(20);
             }
         });
+        p.Children.Add(new TextBlock { Text = "本地模型调用方式", Margin = new Thickness(0, 8, 0, 4) });
+        var modelBackend = new ComboBox { ItemsSource = new[] { "内置模型（默认）", "本地 llama API" }, SelectedIndex = preferences.ModelBackend == "api" ? 1 : 0 };
+        p.Children.Add(modelBackend);
+        p.Children.Add(new TextBlock { Text = "llama API 地址（OpenAI 兼容 /v1）", Margin = new Thickness(0, 8, 0, 4) });
+        var modelApiUrl = new TextBox { Text = preferences.LocalLlamaApiUrl, MinWidth = 300 };
+        p.Children.Add(modelApiUrl);
+        modelBackend.SelectionChanged += (_, _) => { preferences.ModelBackend = modelBackend.SelectedIndex == 1 ? "api" : "builtin"; brain.UseExternalApi = preferences.ModelBackend == "api"; brain.RefreshModelAvailability(); brain.Stop(); nextWarmup = DateTime.MinValue; SaveCompanion(); };
+        modelApiUrl.LostKeyboardFocus += (_, _) => { preferences.LocalLlamaApiUrl = modelApiUrl.Text.Trim(); brain.ExternalApiUrl = preferences.LocalLlamaApiUrl; SaveCompanion(); };
         Toggle("拔电时暂停并卸载模型", preferences.StopModelOnBattery, v =>
         {
             preferences.StopModelOnBattery = v;

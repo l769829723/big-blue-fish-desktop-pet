@@ -7,6 +7,8 @@ namespace BigBlueFish.Windows;
 internal sealed class CompanionPreferences
 {
     public bool ModelEnabled { get; set; } = true;
+    public string ModelBackend { get; set; } = "builtin";
+    public string LocalLlamaApiUrl { get; set; } = "http://127.0.0.1:8080/v1";
     public bool GpuEnabled { get; set; } = true;
     public bool PublicInfo { get; set; } = true;
     public string NewsSource { get; set; } = "builtin";

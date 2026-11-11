@@ -52,6 +52,7 @@ internal sealed class UpdateWindow : ModernWindow
             var process = new ProcessStartInfo(installer) { UseShellExecute = true, Verb = "runas", WorkingDirectory = directory };
             process.ArgumentList.Add("--update"); process.ArgumentList.Add(directory);
             process.ArgumentList.Add("--wait-pid"); process.ArgumentList.Add(Environment.ProcessId.ToString());
+            process.ArgumentList.Add("--cleanup-package"); process.ArgumentList.Add(installer);
             Process.Start(process); InstallerStarted = true;
         }
         catch (OperationCanceledException) { status.Text = "下载已暂停，可以稍后继续。"; }

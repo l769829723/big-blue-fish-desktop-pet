@@ -86,6 +86,7 @@ public partial class MainWindow
         if (wasFullscreenHidden != fullscreenHidden) DiagnosticLog.Write(DiagnosticEvent.VisibilityChanged, kind: "fullscreen", state: fullscreenHidden ? "hidden" : "visible");
         bool show = !hiddenByUser && !fullscreenHidden;
         if (show && !IsVisible) { Show(); ClampCompanion(); }
+        if (show && wasFullscreenHidden) { Topmost = false; Topmost = true; }
         else if (!show && IsVisible) { InvalidateSpeechRequests(); Hide(); }
         if (videoPlayer != null) videoPlayer.Paused = !exitAnimation && !show;
     }
@@ -121,6 +122,8 @@ public partial class MainWindow
         brain = new CompanionBrain
         {
             UseGpu = preferences.GpuEnabled,
+            UseExternalApi = preferences.ModelBackend == "api",
+            ExternalApiUrl = preferences.LocalLlamaApiUrl,
             StopOnBattery = preferences.StopModelOnBattery,
             WeatherRegionCode = preferences.WeatherRegionCode,
             NewsSource = () => preferences.NewsSource,
@@ -353,6 +356,8 @@ public partial class MainWindow
     {
         if (brain == null || preferences == null) return;
         brain.StopOnBattery = preferences.StopModelOnBattery;
+        brain.UseExternalApi = preferences.ModelBackend == "api";
+        brain.ExternalApiUrl = preferences.LocalLlamaApiUrl;
         if (!brain.CanRunOnCurrentPower)
         {
             InvalidateSpeechRequests(true);

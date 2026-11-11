@@ -54,6 +54,7 @@ internal sealed class InstallerForm : ModernWindow
     private readonly Button install;
     private readonly bool updating;
     private readonly int waitPid;
+    private readonly string? cleanupPackage;
     private bool working;
 
     internal InstallerForm(string[]? arguments = null) : base(InstallerTitle, "让鱼鱼住进你的桌面", "安装桌宠、动画资源和本地运行环境。", 650, 550)
@@ -62,6 +63,8 @@ internal sealed class InstallerForm : ModernWindow
         updating = args.Length >= 2 && args[0] == "--update";
         int waitIndex = Array.IndexOf(args, "--wait-pid");
         if (waitIndex >= 0 && waitIndex + 1 < args.Length) int.TryParse(args[waitIndex + 1], out waitPid);
+        int cleanupIndex = Array.IndexOf(args, "--cleanup-package");
+        if (cleanupIndex >= 0 && cleanupIndex + 1 < args.Length) cleanupPackage = Path.GetFullPath(args[cleanupIndex + 1]);
         destination.Text = updating ? Path.GetFullPath(args[1]) : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "蓝色大肥鱼");
         destination.IsReadOnly = updating;
         Body.Children.Add(ModernUI.Text("安装位置")); Body.Children.Add(destination);
@@ -132,6 +135,8 @@ internal sealed class InstallerForm : ModernWindow
             }
             status.Text = "安装完成，正在启动蓝色大肥鱼…"; progress.Value = 100;
             if (!applicationStarted) Launch(target);
+            if (updating && cleanupPackage != null && File.Exists(cleanupPackage))
+                MoveFileEx(cleanupPackage, null, 4);
             working = false; Close();
         }
         catch (Exception error)
@@ -150,6 +155,9 @@ internal sealed class InstallerForm : ModernWindow
             working = false; install.IsEnabled = true; destination.IsEnabled = !updating; progress.IsIndeterminate = false;
         }
     }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+    private static extern bool MoveFileEx(string existing, string? replacement, int flags);
 
     private static Process Launch(string target) => Process.Start(new ProcessStartInfo(Path.Combine(target, "BigBlueFish.exe"))
         { WorkingDirectory = target, UseShellExecute = true }) ?? throw new IOException("未能启动蓝色大肥鱼。");

@@ -46,6 +46,8 @@ internal sealed class CompanionBrain : IDisposable
     internal string Status { get; private set; } = "等待说话时启动";
     internal bool Busy { get; private set; }
     internal bool UseGpu { get; set; } = true;
+    internal bool UseExternalApi { get; set; }
+    internal string ExternalApiUrl { get; set; } = "http://127.0.0.1:8080/v1";
     internal bool StopOnBattery { get; set; } = true;
     internal string WeatherRegionCode { get; set; } = CompanionRegions.DefaultCode;
     internal Func<string>? NewsLocation { get; set; }
@@ -59,7 +61,7 @@ internal sealed class CompanionBrain : IDisposable
         {
             if (DateTime.UtcNow >= nextModelCheck)
             {
-                modelAvailable = BigBlueFish.Deployment.ModelStore.Resolve(Environment.CurrentDirectory) != null;
+                modelAvailable = UseExternalApi || BigBlueFish.Deployment.ModelStore.Resolve(Environment.CurrentDirectory) != null;
                 nextModelCheck = DateTime.UtcNow.AddSeconds(2);
             }
             return modelAvailable;
@@ -184,6 +186,7 @@ internal sealed class CompanionBrain : IDisposable
     private async Task EnsureRunner(CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
+        if (UseExternalApi) { StopRunner(); return; }
         if (runnerReady && runner is { HasExited: false })
         {
             try
@@ -487,7 +490,9 @@ internal sealed class CompanionBrain : IDisposable
             try { File.WriteAllText(Path.GetFullPath("model-request.json"), JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true })); }
             catch { }
         }
-        using var requestMessage = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{port}/v1/chat/completions")
+        var endpoint = UseExternalApi ? new Uri(new Uri(ExternalApiUrl.TrimEnd('/') + "/"), "chat/completions")
+            : new Uri($"http://127.0.0.1:{port}/v1/chat/completions");
+        using var requestMessage = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = JsonContent.Create(payload)
         };
