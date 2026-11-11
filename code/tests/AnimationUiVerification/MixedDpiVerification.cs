@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -27,10 +28,16 @@ internal static partial class Program
             var area=screen.WorkingArea;
             Check(SetWindowPos(Handle(w),IntPtr.Zero,area.Left+area.Width/2-320,area.Top+area.Height/2-180,0,0,0x15),"move pet to monitor "+screen.DeviceName);Pump(200);
             Invoke(w,"ClampCompanion");Invoke(w,"ShowCompanionNotice","主人，鱼鱼陪你检查不同缩放的屏幕呀~",false);Pump(180);
-            var popup=w.OwnedWindows.Cast<Window>().Single(p=>p.Title=="蓝色大肥鱼 · 对话");
-            var pet=PhysicalRect(Handle(w));var bubble=PhysicalRect(Handle(popup));
-            Check(popup.IsVisible&&bubble.Right>bubble.Left&&bubble.Bottom>bubble.Top,"bubble physically visible "+screen.DeviceName);
-            Check(bubble.Left<pet.Right&&bubble.Right>pet.Left&&Math.Abs(bubble.Top-pet.Top)<800,"bubble physically follows pet on monitor "+screen.DeviceName);
+            var pet=PhysicalRect(Handle(w));
+            var bubble=new NativeRect();
+            var bubbleElement=(Border)Read(w,"bubble");
+            var bounds=bubbleElement.TransformToAncestor(w).TransformBounds(new Rect(0,0,bubbleElement.ActualWidth,bubbleElement.ActualHeight));
+            var topLeft=w.PointToScreen(new Point(bounds.Left,bounds.Top));var bottomRight=w.PointToScreen(new Point(bounds.Right,bounds.Bottom));
+            bubble=new NativeRect{Left=(int)topLeft.X,Top=(int)topLeft.Y,Right=(int)bottomRight.X,Bottom=(int)bottomRight.Y};
+            Check(bubbleElement.Visibility==Visibility.Visible&&bubble.Right>bubble.Left&&bubble.Bottom>bubble.Top,"bubble physically visible "+screen.DeviceName);
+            Check(bubble.Left>=pet.Left&&bubble.Right<=pet.Right&&bubble.Top>=pet.Top&&bubble.Bottom<=pet.Bottom,"bubble is inside the captured pet window "+screen.DeviceName);
+            var bubbleCaptureHandle=(IntPtr)typeof(CompanionEdgeLayout).GetProperty("BubbleWindowHandle",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
+            Check(bubbleCaptureHandle==Handle(w),"bubble capture bounds use the capturable pet HWND "+screen.DeviceName);
             var menu=(ContextMenu)Read(w,"companionContextMenu");
             menu.PlacementTarget=w;menu.Placement=PlacementMode.RelativePoint;menu.HorizontalOffset=300;menu.VerticalOffset=160;menu.IsOpen=true;Pump(100);
             var source=(HwndSource)PresentationSource.FromVisual(menu)!;var rect=PhysicalRect(source.Handle);

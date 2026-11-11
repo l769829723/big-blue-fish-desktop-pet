@@ -52,12 +52,12 @@ internal sealed class CompanionComposition : IDisposable
         try
         {
             Check(AttachNative(handle,swapchain));
-            if(owner is MainWindow fish)fish.UseCompositionTaskbarWindow(true);
+            if(owner is MainWindow fish)fish.EnsureCaptureWindowDiscoverable();
             image.Opacity=0;Update();
         }
         catch
         {
-            if(owner is MainWindow fish)fish.UseCompositionTaskbarWindow(false);
+            if(owner is MainWindow fish)fish.EnsureCaptureWindowDiscoverable();
             throw;
         }
     }
@@ -70,16 +70,17 @@ internal sealed class CompanionComposition : IDisposable
         if(handle==IntPtr.Zero)return;
         if(!owner.IsVisible||PresentationSource.FromVisual(image)==null){SetVisible(false);return;}
         var a=image.PointToScreen(new Point());var b=image.PointToScreen(new Point(image.ActualWidth,image.ActualHeight));
-        var bounds=new Rect(a,b);
-        if(bounds!=lastBounds||mirrored!=lastMirror){lastBounds=bounds;lastMirror=mirrored;Bounds(handle,(int)bounds.Left,(int)bounds.Top,Math.Max(1,(int)Math.Round(bounds.Width)),Math.Max(1,(int)Math.Round(bounds.Height)),mirrored?1:0);}
+        var origin=owner.PointToScreen(new Point());var bounds=new Rect(a,b);
+        var relative=new Rect(bounds.Left-origin.X,bounds.Top-origin.Y,bounds.Width,bounds.Height);
+        if(relative!=lastBounds||mirrored!=lastMirror){lastBounds=relative;lastMirror=mirrored;Bounds(handle,(int)Math.Round(relative.Left),(int)Math.Round(relative.Top),Math.Max(1,(int)Math.Round(relative.Width)),Math.Max(1,(int)Math.Round(relative.Height)),mirrored?1:0);}
         SetVisible(ready);
     }
     void SetVisible(bool visible){int value=visible?1:0;if(value!=lastVisible&&handle!=IntPtr.Zero){Show(handle,value);lastVisible=value;}}
-    internal void Hide(){SetVisible(false);image.Opacity=1;ready=false;if(owner is MainWindow fish)fish.UseCompositionTaskbarWindow(false);}
+    internal void Hide(){SetVisible(false);image.Opacity=1;ready=false;if(owner is MainWindow fish)fish.EnsureCaptureWindowDiscoverable();}
     public void Dispose()
     {
         owner.LocationChanged-=Layout;owner.SizeChanged-=Layout;owner.IsVisibleChanged-=VisibilityChanged;image.LayoutUpdated-=Layout;
-        if(handle!=IntPtr.Zero)Destroy(handle);handle=IntPtr.Zero;image.Opacity=1;if(owner is MainWindow fish)fish.UseCompositionTaskbarWindow(false);
+        if(handle!=IntPtr.Zero)Destroy(handle);handle=IntPtr.Zero;image.Opacity=1;if(owner is MainWindow fish)fish.EnsureCaptureWindowDiscoverable();
     }
     // Resolved alongside the bundled GStreamer libraries by CompanionMedia.
     const string Library="bbf-composition";

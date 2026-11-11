@@ -12,7 +12,7 @@ internal sealed partial class LinuxPetWindow
         if (!App.Args.Contains("--test-mode")) return;
         if (DateTime.UtcNow >= nextTestStatus) {
             nextTestStatus = DateTime.UtcNow.AddSeconds(1);
-            File.WriteAllText("test-status.json", JsonSerializer.Serialize(new { version = typeof(LinuxPetWindow).Assembly.GetName().Version!.ToString(3), currentAction, phase, frames = player.Frames, animationSeconds=player.PositionSeconds, animationBackend=player.Backend, player.LastReadMs, player.LastUiMs, player.LastCopyMs, player.LastShapeMs, text = bubbleText.Text, bubbleVisible = bubbleWindow.IsVisible, Puppet, McpAvailable, visible = IsVisible, hidden, fullscreenHidden, modelPid = brain.RunnerPid, modelBusy = brain.Busy, modelStatus = brain.Status, generating, settingsOpen = settings != null, Position.X, Position.Y }));
+            File.WriteAllText("test-status.json", JsonSerializer.Serialize(new { version = typeof(LinuxPetWindow).Assembly.GetName().Version!.ToString(3), currentAction, phase, frames = player.Frames, animationSeconds=player.PositionSeconds, animationBackend=player.Backend, player.LastReadMs, player.LastUiMs, player.LastCopyMs, player.LastShapeMs, text = bubbleText.Text, bubbleVisible = bubbleFrame.IsVisible, bubbleInPetWindow = ReferenceEquals(bubbleFrame.Parent, petCanvas), loadingInPetWindow = ReferenceEquals(loading.Parent, petCanvas), topmost = Topmost, bubbleReservedHeight, Puppet, McpAvailable, visible = IsVisible, hidden, fullscreenHidden, modelPid = brain.RunnerPid, modelBusy = brain.Busy, modelStatus = brain.Status, generating, settingsOpen = settings != null, Position.X, Position.Y }));
         }
         if (!File.Exists("test-command.txt")) return;
         string command = File.ReadAllText("test-command.txt").Trim(); File.Delete("test-command.txt");
@@ -23,7 +23,7 @@ internal sealed partial class LinuxPetWindow
                 case "close-settings": settings?.Close(); break;
                 case "speech-test": await Speak(false); break;
                 case "weather": await Speak(true); break;
-                case "hide": hidden = true; Hide(); bubbleWindow.Hide(); break;
+                case "hide": hidden = true; HideBubble(); Hide(); break;
                 case "show": RestorePet(); break;
                 case "close": Close(); break;
                 case "exit": CloseImmediately(); break;
@@ -44,5 +44,3 @@ internal sealed partial class LinuxPetWindow
         using var image = new RenderTargetBitmap(new PixelSize((int)control.Bounds.Width, (int)control.Bounds.Height)); image.Render(control); image.Save(path, PngBitmapEncoderOptions.Default);
     }
 }
-
-

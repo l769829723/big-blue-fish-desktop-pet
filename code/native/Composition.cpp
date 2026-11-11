@@ -95,7 +95,7 @@ extern "C" __declspec(dllexport) HRESULT surface_create(HWND owner,void(__cdecl*
     static const ATOM atom=[] {WNDCLASSW c{};c.style=CS_DBLCLKS;c.hInstance=GetModuleHandleW(nullptr);c.lpfnWndProc=WindowProc;c.lpszClassName=L"BigBlueFish.Composition";c.hCursor=LoadCursor(nullptr,IDC_ARROW);return RegisterClassW(&c);}();
     if(!atom)return HRESULT_FROM_WIN32(GetLastError());
     auto s=new Surface();s->owner=owner;s->input=input;
-    s->window=CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP|WS_EX_APPWINDOW|WS_EX_NOACTIVATE,L"BigBlueFish.Composition",L"蓝色大肥鱼",WS_POPUP,0,0,1,1,owner,nullptr,GetModuleHandleW(nullptr),s);
+    s->window=CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP|WS_EX_NOACTIVATE,L"BigBlueFish.Composition",L"蓝色大肥鱼",WS_CHILD|WS_CLIPSIBLINGS,0,0,1,1,owner,nullptr,GetModuleHandleW(nullptr),s);
     HRESULT hr=s->window?S_OK:HRESULT_FROM_WIN32(GetLastError());
     if(SUCCEEDED(hr)) {
         HICON iconBig=(HICON)SendMessageW(owner,WM_GETICON,ICON_BIG,0);

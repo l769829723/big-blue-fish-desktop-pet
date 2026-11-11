@@ -86,7 +86,7 @@ internal sealed partial class LinuxPetWindow
     {
         if (Preferences.PuppetMode == enabled) return;
         Preferences.PuppetMode = enabled; speechVersion++; if (AgentDailyActive) brain.Stop(); else brain.CancelGeneration(); loading.IsVisible = false; moveRule = null;
-        if (!externalSpeech) { typing = false; bubbleWindow.Hide(); }
+        if (!externalSpeech) { typing = false; HideBubble(); }
         ConfigureAgent(); Idle();
         if (!enabled) { nextSpeech = DateTime.UtcNow.Add(Preferences.NextSpeechDelay(random)); nextEvent = DateTime.UtcNow.AddSeconds(Preferences.AnimationIntervalSeconds); nextWarmup = DateTime.MinValue; }
     }
@@ -113,7 +113,7 @@ internal sealed partial class LinuxPetWindow
             {
                 case "get_settings": return ControlTools.Text(new { settings = CurrentSettings(), state = new { visible = IsVisible, hiddenByUser = hidden, fullscreenHidden, action = currentAction, animationPhase = phase, queuedActions = externalActions.ToArray(), queuedSpeech = nextExternalText, connections = mcpServer?.Connections ?? 0, inputOpen = mcpInput?.IsVisible == true, inputAvailable = McpInputAvailable, agentConnected = agent?.Connected == true, agentStatus = agent?.Status, agentSession = agent?.SessionId, nextWake = agent?.NextWake, modelAvailable = brain.ModelAvailable, modelBusy = brain.Busy, modelStatus = brain.Status } });
                 case "update_settings": await UpdateSettings(args, token); return ControlTools.Text(new { settings = CurrentSettings() });
-                case "request_local_speech": await RequestAgentLocalSpeech(token); return ControlTools.Text(new { generated = modelReply && bubbleWindow.IsVisible });
+                case "request_local_speech": await RequestAgentLocalSpeech(token); return ControlTools.Text(new { generated = modelReply && bubbleFrame.IsVisible });
                 case "list_actions": return ControlTools.Text(policy.Rules.Select(r => new { action = r.Id, pool = r.Pool, weight = r.Weight, duration_seconds = r.Pool == "Greeting" ? 10 / 1.5 : 10 }));
                 case "capture_foreground": case "capture_screen":
                     var handle = CompanionNative.ResolveForeground(CompanionNative.GetForegroundWindow(), lastForeground);
@@ -158,7 +158,7 @@ internal sealed partial class LinuxPetWindow
                 "BreakfastHour" or "LunchHour" or "DinnerHour" => Range(0, 23), "BubbleDurationIndex" => Range(0, 7),
                 "SpeechMinMinutes" => item.Value is int minutes && CompanionPreferences.SpeechRanges.Any(r => r.Min == minutes),
                 "SpeechInterval" => item.Value is string interval && CompanionPreferences.SpeechIntervals.Any(r => r.Id == interval),
-                "SpeakerRole" => item.Value is string role && role is "assistant" or "owner",
+                "SpeakerRole" => item.Value is string role && Preferences.IsKnownSpeakerRole(role),
                 "WeatherRegionCode" => item.Value is string region && CompanionRegions.District(region).Code == region,
                 "LastBrushDate" => item.Value == null || item.Value is string date && DateTime.TryParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _),
                 "Left" or "Top" => item.Value == null || Range(-1000000, 1000000), _ => item.Value is bool };
@@ -226,7 +226,7 @@ internal sealed partial class LinuxPetWindow
                 int width = (int)Math.Ceiling(dialog.Width * scale), height = (int)Math.Ceiling(dialog.Height * scale), gap = (int)(8 * scale);
                 int x = Position.X + (int)(SpriteSize * 208 / 360 * scale) - width - gap;
                 if (x < area.X + gap) x = Position.X + (int)(SpriteSize * 428 / 360 * scale) + gap;
-                int y = Position.Y + (int)(SpriteSize * 336 / 360 * scale) - height;
+                int y = Position.Y + (int)((bubbleReservedHeight + SpriteSize * 336 / 360) * scale) - height;
                 dialog.Position = new(Math.Clamp(x, area.X + gap, Math.Max(area.X + gap, area.Right - width - gap)),
                     Math.Clamp(y, area.Y + gap, Math.Max(area.Y + gap, area.Bottom - height - gap)));
                 if (!dialog.IsVisible) dialog.Show(this);

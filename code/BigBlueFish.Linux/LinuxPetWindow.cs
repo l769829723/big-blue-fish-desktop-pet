@@ -16,10 +16,10 @@ internal sealed partial class LinuxPetWindow : Window
     readonly CompanionAnimationPolicy policy = CompanionAnimationPolicy.Load(Path.Combine(AppContext.BaseDirectory, "assets/fish"));
     readonly CompanionBrain brain;
     readonly Random random = new();
+    readonly Canvas petCanvas = new();
     readonly Image sprite = new() { Stretch = Stretch.Fill };
     readonly LinuxVideoPlayer player;
     readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(40) };
-    readonly Window bubbleWindow;
     readonly TextBlock bubbleText = new() { TextWrapping = TextWrapping.Wrap };
     readonly LinuxBubble bubbleFrame;
     readonly LinuxLoadingRing loading = new() { IsVisible = false };
@@ -38,6 +38,11 @@ internal sealed partial class LinuxPetWindow : Window
     PixelPoint lastClickPoint;
     long lastClickAt;
     double moveStart, moveEnd;
+    double bubbleReservedHeight;
+    bool updatingBubbleLayout, bubbleReady;
+    byte[]? lastPresentedPixels;
+    int lastPresentedWidth, lastPresentedHeight;
+    bool lastPresentedMirror;
     CompanionAnimationRule? moveRule;
     bool moveMirrored;
     Window? settings;
@@ -57,24 +62,26 @@ internal sealed partial class LinuxPetWindow : Window
         brain = new() { UseGpu = Preferences.GpuEnabled, UseExternalApi = Preferences.ModelBackend == "api", ExternalApiUrl = Preferences.LocalLlamaApiUrl,
             StopOnBattery = Preferences.StopModelOnBattery, WeatherRegionCode = Preferences.WeatherRegionCode,
             NewsSource = () => Preferences.NewsSource, NewsLocation = () => Preferences.ActiveNewsLocation,
-            SpeakAsOwner = Preferences.SpeakerRole == "owner", OwnerPrompt = Preferences.OwnerPrompt,
-            OwnerWeatherPrompt = Preferences.OwnerWeatherPrompt, OwnerNewsPrompt = Preferences.OwnerNewsPrompt };
+        };
+        Preferences.ApplySpeakerRole(brain);
         Title = "蓝色大肥鱼"; WindowDecorations = WindowDecorations.None; ShowInTaskbar = false; ShowActivated = false;
         Topmost = true; CanResize = false; Background = Brushes.Transparent; TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
-        var canvas = new Grid(); canvas.Children.Add(sprite); canvas.Children.Add(loading); Content = canvas;
-        loading.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left; loading.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top;
+        Content = petCanvas;
         player = new(sprite); player.FramePresented += MoveWithAnimation;
         PositionChanged += (_, _) => MoveBubble();
-        player.PixelsPresented += (pixels,width,height,mirror) => CompanionNative.SetInputShape(TryGetPlatformHandle()?.Handle ?? IntPtr.Zero,pixels,width,height,Width*DesktopScaling/width,mirror);
+        player.PixelsPresented += (pixels,width,height,mirror) => {
+            lastPresentedPixels = pixels; lastPresentedWidth = width; lastPresentedHeight = height; lastPresentedMirror = mirror; UpdateInputShape();
+        };
         player.Failed += error => { DiagnosticLog.Write(DiagnosticEvent.AnimationFailed, state: "failed"); if (phase == "Exit") CloseImmediately(); };
         bubbleText.FontFamily = new FontFamily("avares://BigBlueFish.Linux/Assets#LemiXiaoNaiPaoTi");
         bubbleText.Foreground = Hair;
         var close = new Button { Content = "×", Padding = new Thickness(3), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top, Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
-        close.Click += (_, _) => { typing = false; bubbleWindow!.Hide(); };
+        close.Click += (_, _) => { typing = false; HideBubble(); };
         var bubbleGrid = new Grid(); bubbleGrid.Children.Add(bubbleText); bubbleGrid.Children.Add(close); bubbleText.Margin = new Thickness(0, 0, 24, 0);
         bubbleFrame = new LinuxBubble { Child = bubbleGrid, Padding = new Thickness(16,16,16,30) };
-        bubbleWindow = new Window { Title = "蓝色大肥鱼 · 对话", WindowDecorations = WindowDecorations.None, ShowInTaskbar = false, ShowActivated = false,
-            Topmost = true, CanResize = false, Background = Brushes.Transparent, TransparencyLevelHint = [WindowTransparencyLevel.Transparent], Content = bubbleFrame };
+        bubbleFrame.IsVisible = false;
+        petCanvas.Children.Add(sprite); petCanvas.Children.Add(loading); petCanvas.Children.Add(bubbleFrame);
+        bubbleReady = true;
         Rescale();
         var screen = Screens.Primary?.WorkingArea ?? new PixelRect(0, 0, 1280, 720);
         Position = new((int)(Preferences.Left ?? screen.Right - Width * DesktopScaling), (int)(Preferences.Top ?? screen.Bottom - Height * DesktopScaling)); Clamp();
@@ -124,24 +131,30 @@ internal sealed partial class LinuxPetWindow : Window
             speechVersion++; brain.Stop(); moveRule = null; settings?.Close(); hidden = false; fullscreenHidden = false; Show(); player.Paused = false;
             Play(policy.Find("女仆屈膝礼仪"), "Exit"); ShowText("主人再见~鱼鱼喜欢主人哦", false, true);
         };
-        Closed += (_, _) => { DiagnosticLog.Write(DiagnosticEvent.AppStopped, kind: "Linux"); closed = true; timer.Stop(); StopMcp(); brain.Dispose(); player.Dispose(); bubbleWindow.Close(); settings?.Close(); Save(); mutex.Dispose(); (Avalonia.Application.Current!.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)!.Shutdown(); };
+        Closed += (_, _) => { DiagnosticLog.Write(DiagnosticEvent.AppStopped, kind: "Linux"); closed = true; timer.Stop(); StopMcp(); brain.Dispose(); player.Dispose(); settings?.Close(); Save(); mutex.Dispose(); (Avalonia.Application.Current!.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)!.Shutdown(); };
         timer.Tick += async (_, _) => await Tick();
     }
     CompanionAnimationContext Context() => new(DateTime.Now, BreakfastHour: Preferences.BreakfastHour, LunchHour: Preferences.LunchHour, DinnerHour: Preferences.DinnerHour);
     void Rescale()
     {
-        Width = SpriteSize * 640 / 360; Height = SpriteSize; sprite.Width = Width; sprite.Height = Height;
-        loading.Margin = new Thickness(SpriteSize * 412 / 360, SpriteSize * 50 / 360, 0, 0); MoveBubble();
+        Width = SpriteSize * 640 / 360; Height = SpriteSize + bubbleReservedHeight; sprite.Width = Width; sprite.Height = SpriteSize;
+        petCanvas.Width = Width; petCanvas.Height = Height;
+        Canvas.SetLeft(sprite, 0); Canvas.SetTop(sprite, bubbleReservedHeight);
+        Canvas.SetLeft(loading, SpriteSize * 412 / 360); Canvas.SetTop(loading, bubbleReservedHeight + SpriteSize * 50 / 360);
+        MoveBubble();
     }
     PixelPoint Clamp(PixelPoint? requested = null)
     {
         var area = (Screens.ScreenFromWindow(this) ?? Screens.Primary)?.WorkingArea ?? new PixelRect(0, 0, 1280, 720);
-        double s = DesktopScaling, left = SpriteSize * 208 / 360 * s, top = SpriteSize * 58 / 360 * s, right = SpriteSize * 428 / 360 * s, bottom = SpriteSize * 336 / 360 * s;
+        double s = DesktopScaling, left = SpriteSize * 208 / 360 * s, top = (bubbleReservedHeight + SpriteSize * 58 / 360) * s,
+            right = SpriteSize * 428 / 360 * s, bottom = (bubbleReservedHeight + SpriteSize * 336 / 360) * s;
         var target = requested ?? Position;
-        var result = new PixelPoint((int)Math.Clamp(target.X, area.X - left, Math.Max(area.X - left, area.Right - right)), (int)Math.Clamp(target.Y, area.Y - top, Math.Max(area.Y - top, area.Bottom - bottom)));
+        double minimumTop = bubbleReservedHeight > 0 ? area.Y : area.Y - top;
+        var result = new PixelPoint((int)Math.Clamp(target.X, area.X - left, Math.Max(area.X - left, area.Right - right)),
+            (int)Math.Clamp(target.Y, minimumTop, Math.Max(minimumTop, area.Bottom - bottom)));
         Position = result; MoveBubble(); return result;
     }
-    void Save() { if (closed) return; Preferences.Left = Position.X; Preferences.Top = Position.Y; Preferences.Save(); DiagnosticLog.ObserveSettings(Preferences); }
+    void Save() { if (closed) return; Preferences.Left = Position.X; Preferences.Top = Position.Y + (int)Math.Round(bubbleReservedHeight * DesktopScaling); Preferences.Save(); DiagnosticLog.ObserveSettings(Preferences); }
     void Play(CompanionAnimationRule rule, string nextPhase, bool mirror = false)
     {
         if (closed) return;
@@ -191,7 +204,7 @@ internal sealed partial class LinuxPetWindow : Window
         ShowText($"主人{period}好，鱼鱼给主人请安啦~", false, true);
         greetingNoticeActive = true;
     }
-    void EndWelcome() { if (greetingNoticeActive) bubbleWindow.Hide(); greetingNoticeActive = false; }
+    void EndWelcome() { if (greetingNoticeActive) HideBubble(); greetingNoticeActive = false; }
     void ShowText(string text, bool external, bool immediate = false, bool fromModel = false)
     {
         greetingNoticeActive = false;
@@ -211,30 +224,62 @@ internal sealed partial class LinuxPetWindow : Window
     }
     void ShowBubble()
     {
-        if (bubbleWindow.IsVisible) return;
-        bubbleWindow.Show(this);
-        // Some X11 WMs discard ABOVE when a window is withdrawn. Reassert it
-        // after mapping, without activating the bubble or raising it per letter.
-        bubbleWindow.Topmost = false;
-        bubbleWindow.Topmost = true;
-        bubbleWindow.ShowInTaskbar = true;
-        bubbleWindow.ShowInTaskbar = false;
+        if (hidden || fullscreenHidden || bubbleFrame.IsVisible) return;
+        bubbleFrame.IsVisible = true;
+        MoveBubble();
+    }
+    void HideBubble()
+    {
+        if (!bubbleFrame.IsVisible) return;
+        bubbleFrame.IsVisible = false;
+        MoveBubble();
     }
     void ResetDwell() { int duration = CompanionPreferences.BubbleDurations[Preferences.BubbleDurationIndex]; bubbleUntil = duration == 0 ? DateTime.MaxValue : DateTime.UtcNow.AddSeconds(duration); }
     void MoveBubble()
     {
-        if (bubbleFrame == null || bubbleWindow == null) return;
-        double scale = Preferences.BubbleScale;
-        bubbleText.FontSize = 17 * scale; bubbleText.Margin = new(0, 0, 24 * scale, 0); bubbleText.MaxWidth = 270 * scale;
-        bubbleFrame.Padding = new(16 * scale, 16 * scale, 16 * scale, 30 * scale);
-        string prefix = bubbleText.Text ?? ""; bubbleText.Text = fullText;
-        bubbleFrame.Measure(new Size(320 * scale, double.PositiveInfinity)); var size = bubbleFrame.DesiredSize; bubbleText.Text = prefix;
-        var area = (Screens.ScreenFromWindow(this) ?? Screens.Primary)?.WorkingArea ?? new PixelRect(0, 0, 1280, 720);
-        bubbleWindow.Width = Math.Min(size.Width, area.Width / DesktopScaling - 16); bubbleWindow.Height = Math.Min(size.Height, area.Height / DesktopScaling - 16);
-        int width = (int)(bubbleWindow.Width * DesktopScaling), height = (int)(bubbleWindow.Height * DesktopScaling);
-        int x = Position.X + (int)(Width * DesktopScaling / 2) - width / 2, y = Position.Y + (int)(SpriteSize * 58 / 360 * DesktopScaling) - height - 10;
-        if (y < area.Y) y = Position.Y + (int)(SpriteSize * 336 / 360 * DesktopScaling) + 10;
-        bubbleWindow.Position = new(Math.Clamp(x, area.X + 8, Math.Max(area.X + 8, area.Right - width - 8)), Math.Clamp(y, area.Y + 8, Math.Max(area.Y + 8, area.Bottom - height - 8)));
+        if (!bubbleReady || updatingBubbleLayout) return;
+        updatingBubbleLayout = true;
+        try {
+            double scale = Preferences.BubbleScale;
+            bubbleText.FontSize = 17 * scale; bubbleText.Margin = new(0, 0, 24 * scale, 0);
+            bubbleFrame.Padding = new(16 * scale, 16 * scale, 16 * scale, 30 * scale);
+            var area = (Screens.ScreenFromWindow(this) ?? Screens.Primary)?.WorkingArea ?? new PixelRect(0, 0, 1280, 720);
+            double maxWidth = Math.Max(1, Math.Min(300 * scale, Width - 16));
+            double maxHeight = Math.Max(1, area.Height / DesktopScaling - SpriteSize - 16);
+            bubbleFrame.MaxWidth = maxWidth; bubbleFrame.MaxHeight = maxHeight;
+            string prefix = bubbleText.Text ?? ""; bubbleText.Text = fullText;
+            bool hiddenForMeasure = !bubbleFrame.IsVisible;
+            bubbleFrame.Width = double.NaN; bubbleFrame.Height = double.NaN;
+            if (hiddenForMeasure) bubbleFrame.IsVisible = true;
+            bubbleFrame.Measure(new Size(maxWidth, maxHeight)); var size = bubbleFrame.DesiredSize;
+            if (hiddenForMeasure) bubbleFrame.IsVisible = false;
+            bubbleText.Text = prefix;
+            bubbleFrame.Width = Math.Min(size.Width, maxWidth); bubbleFrame.Height = Math.Min(size.Height, maxHeight);
+            Canvas.SetLeft(bubbleFrame, Math.Max(0, (Width - bubbleFrame.Width) / 2)); Canvas.SetTop(bubbleFrame, 0);
+            double newReservedHeight = bubbleFrame.IsVisible ? bubbleFrame.Height + 10 : 0;
+            double oldReservedHeight = bubbleReservedHeight;
+            if (Math.Abs(newReservedHeight - oldReservedHeight) > .5) {
+                bubbleReservedHeight = newReservedHeight;
+                Height = SpriteSize + bubbleReservedHeight;
+                petCanvas.Width = Width; petCanvas.Height = Height;
+                Canvas.SetTop(sprite, bubbleReservedHeight);
+                Canvas.SetTop(loading, bubbleReservedHeight + SpriteSize * 50 / 360);
+                Position = new(Position.X, Position.Y + (int)Math.Round((oldReservedHeight - bubbleReservedHeight) * DesktopScaling));
+                Clamp();
+            }
+            UpdateInputShape();
+        } finally { updatingBubbleLayout = false; }
+    }
+    void UpdateInputShape()
+    {
+        if (lastPresentedPixels == null || lastPresentedWidth <= 0) return;
+        double scale = Width * DesktopScaling / lastPresentedWidth;
+        CompanionNative.SetInputShape(TryGetPlatformHandle()?.Handle ?? IntPtr.Zero, lastPresentedPixels,
+            lastPresentedWidth, lastPresentedHeight, scale, lastPresentedMirror,
+            bubbleFrame.IsVisible ? Canvas.GetLeft(bubbleFrame) : 0,
+            bubbleFrame.IsVisible ? Canvas.GetTop(bubbleFrame) : 0,
+            bubbleFrame.IsVisible ? bubbleFrame.Width : 0,
+            bubbleFrame.IsVisible ? bubbleFrame.Height : 0, bubbleReservedHeight);
     }
     async Task Tick()
     {
@@ -245,11 +290,11 @@ internal sealed partial class LinuxPetWindow : Window
         if (Preferences.PublicInfo && Preferences.WeatherEnabled) brain.RefreshWeather();
         if (!brain.CanRunOnCurrentPower) {
             if (brain.RunnerPid != null || brain.Busy) { speechVersion++; brain.Stop(); loading.IsVisible = false; }
-            if (modelReply) bubbleWindow.Hide();
+            if (modelReply) HideBubble();
         }
         else if (!brain.UseExternalApi && !AgentDailyActive && !modelInstalling && Preferences.ModelEnabled && brain.ModelAvailable && !generating && !brain.Busy && brain.RunnerPid == null && now >= nextWarmup) { nextWarmup = now.AddMinutes(2); _ = brain.WarmUp(); }
         bool full = Preferences.HideOnFullscreen && CompanionNative.IsFullscreen();
-        if (full && !fullscreenHidden && !hidden) { fullscreenHidden = true; Hide(); bubbleWindow.Hide(); speechVersion++; brain.CancelGeneration(); }
+        if (full && !fullscreenHidden && !hidden) { fullscreenHidden = true; HideBubble(); Hide(); speechVersion++; brain.CancelGeneration(); }
         else if (!full && fullscreenHidden) { fullscreenHidden = false; if (!hidden) { Show(); Clamp(); } }
         player.Paused = hidden || fullscreenHidden;
         TickAgent(now);
@@ -260,7 +305,7 @@ internal sealed partial class LinuxPetWindow : Window
             bubbleText.Text = count >= textBoundaries.Length ? fullText : fullText[..textBoundaries[count]];
             if (count == textBoundaries.Length) { typing = false; ResetDwell(); }
         }
-        if (now >= bubbleUntil) bubbleWindow.Hide();
+        if (now >= bubbleUntil) HideBubble();
         if (Puppet || dragging || settings != null || modelInstalling || now < nextSpeech) return;
         if (nextExternalText == null && !AgentDailyActive && (generating || brain.Busy || !Preferences.ModelEnabled || !brain.ModelAvailable || !brain.CanRunOnCurrentPower)) return;
         if (CompanionNative.IdleSeconds < 8 || CompanionNative.IdleSeconds > 600) { nextSpeech = now.AddSeconds(30); return; }
@@ -286,7 +331,7 @@ internal sealed partial class LinuxPetWindow : Window
                 Preferences.ForegroundEnabled, lastForeground, p => Partial(p, version, agentTriggered), chatty: Preferences.Chatty);
             if (version != speechVersion || Puppet && !agentTriggered || hidden || fullscreenHidden || closed || !Preferences.ModelEnabled || !brain.CanRunOnCurrentPower) return;
             if (text.Length > 0) { if (streamed) { fullText = text; bubbleText.Text = text; ResetDwell(); } else ShowText(text, false, fromModel: true); }
-            else if (streamed && !externalSpeech) bubbleWindow.Hide();
+            else if (streamed && !externalSpeech) HideBubble();
         }
         finally { generating = false; loading.IsVisible = false; }
     }
@@ -321,7 +366,7 @@ internal sealed partial class LinuxPetWindow : Window
         var menu = new ContextMenu();
         MenuItem Item(string title, Action action, bool available = true) { var item = new MenuItem { Header = title, IsEnabled = available }; item.Click += (_, _) => action(); return item; }
         menu.ItemsSource = new[] { Item("设置", OpenSettings), Item("天气", async () => await SpeakManual(true)), Item("吐字测试", async () => await SpeakManual(false)),
-            Item(hidden ? "显示桌宠" : "隐藏桌宠", () => { if (hidden) { hidden = false; Show(); Clamp(); } else { hidden = true; Hide(); bubbleWindow.Hide(); speechVersion++; brain.CancelGeneration(); } }), Item("关闭桌宠", Close) };
+            Item(hidden ? "显示桌宠" : "隐藏桌宠", () => { if (hidden) { hidden = false; Show(); Clamp(); } else { hidden = true; HideBubble(); Hide(); speechVersion++; brain.CancelGeneration(); } }), Item("关闭桌宠", Close) };
         ContextMenu = menu; menu.Open(this);
     }
     void CloseImmediately() { exitReady = true; Close(); }

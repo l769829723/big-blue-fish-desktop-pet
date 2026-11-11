@@ -212,74 +212,182 @@ public partial class MainWindow
         p.Children.Add(new TextBlock { Text = "角色定位", Margin = new Thickness(0, 0, 0, 4) });
         var speakerRole = new ComboBox
         {
-            ItemsSource = new[] { "助手（默认）", "主人" },
-            SelectedIndex = preferences.SpeakerRole == "owner" ? 1 : 0,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
         p.Children.Add(speakerRole);
+        var roleActions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+        var roleName = new TextBox { Text = "新角色", Width = 220, MaxLength = 40, VerticalContentAlignment = VerticalAlignment.Center };
+        var addRole = new Button { Content = "新增角色", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(8, 0, 0, 0) };
+        var removeRole = new Button { Content = "删除角色", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(8, 0, 0, 0) };
+        roleActions.Children.Add(roleName);
+        roleActions.Children.Add(addRole);
+        roleActions.Children.Add(removeRole);
+        p.Children.Add(roleActions);
+        bool updatingRoleControls = false;
+        var rolePromptEditors = new TextBox[3];
+        var rolePromptHeaders = new TextBlock[3];
+        int SelectedRoleIndex() => speakerRole.SelectedIndex;
+        CompanionRoleProfile? ActiveRole() => SelectedRoleIndex() >= 2 && SelectedRoleIndex() - 2 < preferences.CustomRoles.Count
+            ? preferences.CustomRoles[SelectedRoleIndex() - 2] : null;
+        string[] RoleOptions() => new[] { "助手（默认）", "主人" }.Concat(preferences.CustomRoles.Select(role => role.Name)).ToArray();
+        int RoleIndex() => preferences.SpeakerRole == "assistant" ? 0
+            : preferences.SpeakerRole == "owner" ? 1
+            : Math.Max(0, preferences.CustomRoles.FindIndex(role => role.Id == preferences.SpeakerRole) + 2);
+        void RefreshRoleControls()
+        {
+            updatingRoleControls = true;
+            speakerRole.ItemsSource = RoleOptions();
+            speakerRole.SelectedIndex = RoleIndex();
+            var profile = ActiveRole();
+            roleName.Text = profile?.Name ?? "";
+            roleName.IsEnabled = profile != null;
+            removeRole.IsEnabled = profile != null;
+            addRole.IsEnabled = preferences.CustomRoles.Count < 20;
+            for (int i = 0; i < rolePromptEditors.Length; i++)
+            {
+                string suffix = i switch { 0 => "普通说话提示词", 1 => "天气提示词", _ => "科技新闻提示词" };
+                string label = profile == null ? "主人" + suffix : profile.Name + suffix;
+                rolePromptHeaders[i].Text = label;
+                rolePromptEditors[i].Text = RolePrompt(i);
+                System.Windows.Automation.AutomationProperties.SetName(rolePromptEditors[i], label);
+            }
+            updatingRoleControls = false;
+        }
+        string RolePrompt(int index)
+        {
+            var profile = ActiveRole();
+            if (profile != null) return index switch { 0 => profile.Prompt, 1 => profile.WeatherPrompt, _ => profile.NewsPrompt };
+            return index switch { 0 => preferences.OwnerPrompt, 1 => preferences.OwnerWeatherPrompt, _ => preferences.OwnerNewsPrompt };
+        }
+        string DefaultRolePrompt(int index)
+        {
+            var profile = ActiveRole();
+            if (profile != null)
+            {
+                var defaults = CompanionRoleProfile.Create(profile.Name);
+                return index switch { 0 => defaults.Prompt, 1 => defaults.WeatherPrompt, _ => defaults.NewsPrompt };
+            }
+            return index switch { 0 => CompanionDialogue.OwnerPromptDefault, 1 => CompanionDialogue.OwnerWeatherPromptDefault, _ => CompanionDialogue.OwnerNewsPromptDefault };
+        }
+        void SaveRolePrompt(int index, string text)
+        {
+            var profile = ActiveRole();
+            if (profile != null)
+            {
+                if (index == 0) profile.Prompt = text;
+                else if (index == 1) profile.WeatherPrompt = text;
+                else profile.NewsPrompt = text;
+            }
+            else
+            {
+                if (index == 0) preferences.OwnerPrompt = text;
+                else if (index == 1) preferences.OwnerWeatherPrompt = text;
+                else preferences.OwnerNewsPrompt = text;
+            }
+            preferences.ApplySpeakerRole(brain);
+            InvalidateSpeechRequests();
+            SaveCompanion();
+        }
         speakerRole.SelectionChanged += (_, _) =>
         {
-            if (speakerRole.SelectedIndex < 0) return;
-            preferences.SpeakerRole = speakerRole.SelectedIndex == 1 ? "owner" : "assistant";
-            brain.SpeakAsOwner = preferences.SpeakerRole == "owner";
+            if (updatingRoleControls || speakerRole.SelectedIndex < 0) return;
+            int index = speakerRole.SelectedIndex;
+            preferences.SpeakerRole = index switch { 0 => "assistant", 1 => "owner", _ => preferences.CustomRoles[index - 2].Id };
+            preferences.ApplySpeakerRole(brain);
+            RefreshRoleControls();
             InvalidateSpeechRequests();
             SaveCompanion();
         };
+        addRole.Click += (_, _) =>
+        {
+            try
+            {
+                preferences.AddCustomRole(roleName.Text);
+                preferences.ApplySpeakerRole(brain);
+                RefreshRoleControls();
+                InvalidateSpeechRequests();
+                SaveCompanion();
+            }
+            catch (Exception error) { BigBlueFish.Deployment.ModernUI.Error(w, "新增角色失败", error); }
+        };
+        removeRole.Click += (_, _) =>
+        {
+            var profile = ActiveRole();
+            if (profile == null) return;
+            preferences.CustomRoles.Remove(profile);
+            preferences.SpeakerRole = "assistant";
+            preferences.ApplySpeakerRole(brain);
+            RefreshRoleControls();
+            InvalidateSpeechRequests();
+            SaveCompanion();
+        };
+        roleName.LostKeyboardFocus += (_, _) =>
+        {
+            var profile = ActiveRole();
+            if (profile == null || string.IsNullOrWhiteSpace(roleName.Text)) { RefreshRoleControls(); return; }
+            string name = roleName.Text.Trim();
+            if (preferences.CustomRoles.Any(role => role != profile && string.Equals(role.Name, name, StringComparison.OrdinalIgnoreCase)))
+            {
+                BigBlueFish.Deployment.ModernUI.Error(w, "角色名称已存在", new ArgumentException("请使用不同的角色名称。"));
+                RefreshRoleControls();
+                return;
+            }
+            if (name != profile.Name)
+            {
+                profile.Name = name;
+                preferences.ApplySpeakerRole(brain);
+                RefreshRoleControls();
+                SaveCompanion();
+            }
+        };
         p.Children.Add(new TextBlock
         {
-            Text = "主人模式提示词（时间、屏幕、天气和新闻资料由程序单独提供，无需插入模板变量）",
+            Text = "可为不同角色分别设置普通说话、天气和新闻提示词；时间、屏幕与公共信息由程序单独提供，无需模板变量。",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 12, 0, 6),
             Foreground = Brushes.SlateGray
         });
-        void OwnerPromptEditor(string label, string value, string defaultValue, Action<string> save)
+        void RolePromptEditor(int index, string suffix)
         {
             var header = new DockPanel { Margin = new Thickness(0, 8, 0, 4) };
             var reset = new Button { Content = "恢复默认", Padding = new Thickness(8, 3, 8, 3), HorizontalAlignment = HorizontalAlignment.Right };
-            reset.ToolTip = label;
+            reset.ToolTip = suffix;
             DockPanel.SetDock(reset, Dock.Right);
             header.Children.Add(reset);
-            header.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+            var heading = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
+            rolePromptHeaders[index] = heading;
+            header.Children.Add(heading);
             p.Children.Add(header);
             var editor = new TextBox
             {
-                Text = value,
+                Text = RolePrompt(index),
                 AcceptsReturn = true,
                 TextWrapping = TextWrapping.Wrap,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                MinHeight = label == "主人普通说话提示词" ? 210 : 120,
+                MinHeight = index == 0 ? 210 : 120,
                 MaxLength = 16000
             };
-            System.Windows.Automation.AutomationProperties.SetName(editor, label);
+            rolePromptEditors[index] = editor;
+            System.Windows.Automation.AutomationProperties.SetName(editor, heading.Text);
             p.Children.Add(editor);
             void SavePrompt(string text)
             {
-                if (string.IsNullOrWhiteSpace(text) && label != "主人天气提示词") text = defaultValue;
+                if (string.IsNullOrWhiteSpace(text) && index != 1) text = DefaultRolePrompt(index);
                 editor.Text = text;
-                save(text);
-                InvalidateSpeechRequests();
-                SaveCompanion();
+                SaveRolePrompt(index, text);
             }
             editor.LostKeyboardFocus += (_, _) =>
             {
                 string text = editor.Text;
-                if (string.IsNullOrWhiteSpace(text) && label != "主人天气提示词") text = defaultValue;
-                if (text != value) { value = text; SavePrompt(text); }
+                if (string.IsNullOrWhiteSpace(text) && index != 1) text = DefaultRolePrompt(index);
+                if (text != RolePrompt(index)) SavePrompt(text);
             };
-            reset.Click += (_, _) => { value = defaultValue; editor.Text = defaultValue; SavePrompt(defaultValue); };
+            reset.Click += (_, _) => SavePrompt(DefaultRolePrompt(index));
         }
-        OwnerPromptEditor("主人普通说话提示词", preferences.OwnerPrompt, CompanionDialogue.OwnerPromptDefault, text =>
-        {
-            preferences.OwnerPrompt = text; brain.OwnerPrompt = text;
-        });
-        OwnerPromptEditor("主人天气提示词", preferences.OwnerWeatherPrompt, CompanionDialogue.OwnerWeatherPromptDefault, text =>
-        {
-            preferences.OwnerWeatherPrompt = text; brain.OwnerWeatherPrompt = text;
-        });
-        OwnerPromptEditor("主人科技新闻提示词", preferences.OwnerNewsPrompt, CompanionDialogue.OwnerNewsPromptDefault, text =>
-        {
-            preferences.OwnerNewsPrompt = text; brain.OwnerNewsPrompt = text;
-        });
+        RolePromptEditor(0, "普通说话提示词");
+        RolePromptEditor(1, "天气提示词");
+        RolePromptEditor(2, "科技新闻提示词");
+        RefreshRoleControls();
         newsEnabled = Toggle("主题灵感", preferences.NewsEnabled, v =>
         {
             preferences.NewsEnabled = v;

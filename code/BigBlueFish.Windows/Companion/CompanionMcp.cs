@@ -254,7 +254,7 @@ public partial class MainWindow
                 "BubbleDurationIndex" => Range(0, 7),
                 "SpeechMinMinutes" => item.Value is int minutes && CompanionPreferences.SpeechRanges.Any(r => r.Min == minutes),
                 "SpeechInterval" => item.Value is string interval && CompanionPreferences.SpeechIntervals.Any(r => r.Id == interval),
-                "SpeakerRole" => item.Value is string role && role is "assistant" or "owner",
+                "SpeakerRole" => item.Value is string role && preferences.IsKnownSpeakerRole(role),
                 "WeatherRegionCode" => item.Value is string region && CompanionRegions.District(region).Code == region,
                 "LastBrushDate" => item.Value == null || item.Value is string date && DateTime.TryParseExact(date, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _),
                 "Left" or "Top" => item.Value == null || Range(-1000000, 1000000),
@@ -278,7 +278,7 @@ public partial class MainWindow
         else preferences.NormalizePublicInfo();
         if (values.TryGetValue("SpeechInterval", out var speechInterval)) preferences.SetSpeechInterval((string)speechInterval!);
         else if (values.TryGetValue("SpeechMinMinutes", out var speechMinutes)) preferences.SetSpeechInterval(speechMinutes switch { 2 => "2m", 3 => "3m", 5 => "5m", 15 => "15m", 20 => "20m", _ => "10m" });
-        brain.SpeakAsOwner = preferences.SpeakerRole == "owner";
+        preferences.ApplySpeakerRole(brain);
         if (values.TryGetValue("PuppetMode", out puppet)) SetPuppetMode((bool)puppet!);
         bool contextChanged = oldPublicInfo != preferences.PublicInfo || oldWeather != preferences.WeatherEnabled
             || oldNews != preferences.NewsEnabled || oldChatty != preferences.Chatty || oldForeground != preferences.ForegroundEnabled

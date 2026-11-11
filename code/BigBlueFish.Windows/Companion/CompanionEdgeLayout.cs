@@ -2,7 +2,6 @@ using System;
 using System.ComponentModel;
 using System.Drawing;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Forms;
@@ -11,7 +10,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using BigBlueFish.Windows;
 
-// Positions the visible character at the monitor edge and keeps its separate bubble inside the work area.
+// Positions the visible character at the monitor edge and keeps its bubble in the capturable owner window.
 public static class CompanionEdgeLayout
 {
     private static int bubbleVisible;
@@ -25,12 +24,10 @@ public static class CompanionEdgeLayout
         private readonly System.Windows.Controls.TextBlock text;
         private readonly System.Windows.Controls.TextBlock measuringText = new();
         private readonly DependencyPropertyDescriptor textChange;
-        private Window? popup;
         private bool updating;
         private bool closed;
         private bool queued;
         private bool petPinned;
-        private bool popupPinned;
         private DateTime nextDesktopCheck;
         private DateTime nextPinAttempt;
         private readonly DependencyPropertyDescriptor visibility;
@@ -100,62 +97,22 @@ public static class CompanionEdgeLayout
             closed = true;
             visibility.RemoveValueChanged(bubble, Changed);
             textChange.RemoveValueChanged(text, Changed);
-            if (popup != null)
-            {
-                System.Threading.Interlocked.CompareExchange(ref bubbleHandle, 0, new WindowInteropHelper(popup).Handle.ToInt64());
-                popup.Content = null;
-                popup.Close();
-            }
+            System.Threading.Interlocked.CompareExchange(ref bubbleHandle, 0, new WindowInteropHelper(pet).Handle.ToInt64());
         }
 
         private void Create()
         {
-            if (popup == null && !closed)
+            if (!closed)
             {
-                ((System.Windows.Controls.Panel)bubble.Parent).Children.Remove(bubble);
-                bubble.HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch;
-                popup = new Window
-                {
-                    Title = "蓝色大肥鱼 · 对话",
-                    WindowStyle = WindowStyle.None,
-                    AllowsTransparency = true,
-                    Background = System.Windows.Media.Brushes.Transparent,
-                    ResizeMode = ResizeMode.NoResize,
-                    ShowActivated = false,
-                    ShowInTaskbar = false,
-                    Topmost = true,
-                    Owner = pet,
-                    Content = bubble
-                };
-                popup.SourceInitialized += (object? s, EventArgs e) =>
-                {
-                    nint handle = new WindowInteropHelper(popup).Handle;
-                    System.Threading.Interlocked.Exchange(ref bubbleHandle, handle.ToInt64());
-                    SetWindowLongPtr(handle, -20, new IntPtr(((IntPtr)GetWindowLongPtr(handle, -20)).ToInt64() | 0x8000080));
-                    HwndSource.FromHwnd(handle)?.AddHook(NoActivate);
-                    popupPinned = CompanionNative.PinWindowToAllVirtualDesktops(handle);
-                };
-                popup.DpiChanged += (object s, System.Windows.DpiChangedEventArgs e) =>
-                {
-                    pet.Dispatcher.BeginInvoke(new Action(Update), DispatcherPriority.Loaded);
-                };
+                bubble.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
+                bubble.VerticalAlignment = System.Windows.VerticalAlignment.Top;
+                System.Threading.Interlocked.Exchange(ref bubbleHandle, new WindowInteropHelper(pet).EnsureHandle().ToInt64());
             }
-        }
-
-        private static nint NoActivate(nint h, int msg, nint wp, nint lp, ref bool handled)
-        {
-            if (msg == 33)
-            {
-                handled = true;
-                return new IntPtr(3);
-            }
-
-            return IntPtr.Zero;
         }
 
         public void Update()
         {
-            if (updating || closed || popup == null)
+            if (updating || closed)
             {
                 return;
             }
@@ -163,14 +120,12 @@ public static class CompanionEdgeLayout
             updating = true;
             try
             {
-                if (!pet.IsVisible || !CompanionNative.IsOnCurrentVirtualDesktop(new WindowInteropHelper(pet).Handle) || bubble.Visibility != Visibility.Visible)
+                nint handle = new WindowInteropHelper(pet).EnsureHandle();
+                System.Threading.Interlocked.Exchange(ref bubbleHandle, handle.ToInt64());
+                if (!pet.IsVisible || !CompanionNative.IsOnCurrentVirtualDesktop(handle) || bubble.Visibility != Visibility.Visible)
                 {
                     System.Threading.Volatile.Write(ref bubbleVisible, 0);
-                    if (popup.IsVisible)
-                    {
-                        popup.Hide();
-                    }
-
+                    ResizeWindowForBubble(0);
                     return;
                 }
 
@@ -178,7 +133,6 @@ public static class CompanionEdgeLayout
                 var styledBubble = bubble as BigBlueFish.Windows.CompanionBubble;
                 double scale = ((BigBlueFish.Windows.MainWindow)pet).CompanionBubbleScale;
                 Rect petBounds = PetBounds(pet);
-                // Measure in the bubble's own units; position its scaled window in desktop DIP.
                 double maximumWidth = Math.Max(1.0, Math.Min(300.0, (area.Width - 16.0) / scale));
                 bubble.MaxWidth = maximumWidth;
                 measuringText.Text = ((BigBlueFish.Windows.MainWindow)pet).CompanionBubbleLayoutText;
@@ -190,35 +144,26 @@ public static class CompanionEdgeLayout
                 double horizontal = bubble.Padding.Left + bubble.Padding.Right + bubble.BorderThickness.Left + bubble.BorderThickness.Right;
                 double vertical = bubble.Padding.Top + bubble.Padding.Bottom + bubble.BorderThickness.Top + bubble.BorderThickness.Bottom;
                 measuringText.Measure(new System.Windows.Size(Math.Max(1, maximumWidth - horizontal), double.PositiveInfinity));
-                double bubbleWidth = Math.Min(maximumWidth, Math.Max(26, measuringText.DesiredSize.Width) + horizontal);
-                // WPF rounds the scaled arrange width; reserve two base DIP while
-                // measuring so a wrap at that boundary cannot add an unmeasured line.
-                measuringText.Measure(new System.Windows.Size(Math.Max(1, bubbleWidth - horizontal - 2), double.PositiveInfinity));
-                double bubbleHeight = Math.Min(Math.Max(1.0, (area.Height - 16.0) / scale), Math.Max(22, measuringText.DesiredSize.Height) + vertical);
-                bubbleWidth *= scale;
-                bubbleHeight *= scale;
-                double left = Limit(pet.Left + petBounds.Left + petBounds.Width / 2.0 - bubbleWidth / 2.0, area.Left + 8.0, area.Right - bubbleWidth - 8.0);
-                double top = pet.Top + petBounds.Top - bubbleHeight - 10.0;
-                bool belowPet = false;
-                if (top < area.Top + 8.0)
-                {
-                    belowPet = true;
-                    top = pet.Top + petBounds.Bottom + 10.0;
-                }
-
-                top = Limit(top, area.Top + 8.0, area.Bottom - bubbleHeight - 8.0);
-                styledBubble?.PointAt((pet.Left + petBounds.Left + petBounds.Width / 2.0 - left) / scale, belowPet);
-                popup.Width = Math.Max(1.0, bubbleWidth);
-                popup.Height = Math.Max(1.0, bubbleHeight);
-                Place(left, top);
-                if (!popup.IsVisible)
-                {
-                    popup.Show();
-                    Place(left, top);
-                    BigBlueFish.Diagnostics.DiagnosticLog.Write(BigBlueFish.Diagnostics.DiagnosticEvent.BubbleShown,
-                        state: "visible");
-                    QueueUpdate();
-                }
+                double naturalWidth = Math.Min(maximumWidth, Math.Max(26, measuringText.DesiredSize.Width) + horizontal);
+                measuringText.Measure(new System.Windows.Size(Math.Max(1, naturalWidth - horizontal - 2), double.PositiveInfinity));
+                double naturalHeight = Math.Min(Math.Max(1.0, (area.Height - 16.0) / scale),
+                    Math.Max(22, measuringText.DesiredSize.Height) + vertical);
+                double bubbleWidth = naturalWidth * scale;
+                double bubbleHeight = naturalHeight * scale;
+                ResizeWindowForBubble(bubbleHeight + 10.0);
+                petBounds = PetBounds(pet);
+                area = WorkArea(pet);
+                double petCenterX = petBounds.Left + petBounds.Width / 2.0;
+                double left = Limit(petCenterX - bubbleWidth / 2.0, 8.0, pet.Width - bubbleWidth - 8.0);
+                double top = petBounds.Top - bubbleHeight - 10.0;
+                double maximumTop = Math.Max(0, pet.Height - bubbleHeight - 8.0);
+                double minimumVisibleTop = Math.Max(0, area.Top + 8.0 - pet.Top);
+                top = Math.Min(maximumTop, Math.Max(minimumVisibleTop, Math.Max(0, top)));
+                bubble.MaxHeight = Math.Max(1.0, Math.Min(naturalHeight, (pet.Height - top - 8.0) / scale));
+                bubble.Width = naturalWidth;
+                bubble.Margin = new Thickness(left, top, 0, 0);
+                bool belowPet = top > petBounds.Top - bubbleHeight - 10.0;
+                styledBubble?.PointAt((petCenterX - left) / scale, belowPet);
                 System.Threading.Volatile.Write(ref bubbleVisible, 1);
             }
             finally
@@ -227,47 +172,43 @@ public static class CompanionEdgeLayout
             }
         }
 
+        private void ResizeWindowForBubble(double bubbleHeight)
+        {
+            double baseHeight = SpriteSize(pet) + 35.0;
+            Rect oldBounds = PetBounds(pet);
+            double characterTop = pet.Top + oldBounds.Top;
+            double baseTop = baseHeight - SpriteSize(pet) + 58.0;
+            double extraHeight = Math.Max(0, bubbleHeight - baseTop);
+            double targetHeight = baseHeight + extraHeight;
+            if (Math.Abs(pet.Height - targetHeight) < 0.5) return;
+            pet.Height = targetHeight;
+            pet.Top = characterTop - PetBounds(pet).Top;
+        }
+
         public void Hide()
         {
             System.Threading.Volatile.Write(ref bubbleVisible, 0);
-            if (popup?.IsVisible == true) popup.Hide();
         }
 
         public void CheckDesktop()
         {
-            if (closed || popup == null || DateTime.UtcNow < nextDesktopCheck) return;
+            if (closed || DateTime.UtcNow < nextDesktopCheck) return;
             nextDesktopCheck = DateTime.UtcNow.AddMilliseconds(300);
-            TryPinWindows();
             IntPtr petHandle = new WindowInteropHelper(pet).Handle;
-            IntPtr popupHandle = new WindowInteropHelper(popup).Handle;
-            bool petCurrent = CompanionNative.IsOnCurrentVirtualDesktop(petHandle);
-            bool popupCurrent = popupHandle == IntPtr.Zero || CompanionNative.IsOnCurrentVirtualDesktop(popupHandle);
-            if (!petCurrent || !popupCurrent)
+            if (!CompanionNative.IsOnCurrentVirtualDesktop(petHandle))
             {
                 Hide();
-                if (!petCurrent) CompanionNative.MoveToCurrentVirtualDesktop(petHandle);
-                if (!popupCurrent) CompanionNative.MoveToCurrentVirtualDesktop(popupHandle);
+                CompanionNative.MoveToCurrentVirtualDesktop(petHandle);
                 return;
             }
-            if (pet.IsVisible && bubble.Visibility == Visibility.Visible && !popup.IsVisible) Update();
+            if (pet.IsVisible && bubble.Visibility == Visibility.Visible) Update();
         }
 
         private void TryPinWindows()
         {
-            if (petPinned && (popup == null || popupPinned) || DateTime.UtcNow < nextPinAttempt) return;
+            if (petPinned || DateTime.UtcNow < nextPinAttempt) return;
             nextPinAttempt = DateTime.UtcNow.AddSeconds(3);
-            if (!petPinned)
-                petPinned = CompanionNative.PinWindowToAllVirtualDesktops(new WindowInteropHelper(pet).Handle);
-            if (!popupPinned && popup != null)
-                popupPinned = CompanionNative.PinWindowToAllVirtualDesktops(new WindowInteropHelper(popup).Handle);
-        }
-
-        // popup.Left/Top lands on the wrong monitor with mixed scaling (dotnet/wpf#3105); place in screen pixels via the pet's transform.
-        private void Place(double left, double top)
-        {
-            System.Windows.Point screen = pet.PointToScreen(new System.Windows.Point(left - pet.Left, top - pet.Top));
-            nint handle = new WindowInteropHelper(popup!).EnsureHandle();
-            SetWindowPos(handle, new IntPtr(-1), (int)Math.Round(screen.X), (int)Math.Round(screen.Y), 0, 0, 0x0001 | 0x0004 | 0x0010);
+            petPinned = CompanionNative.PinWindowToAllVirtualDesktops(new WindowInteropHelper(pet).Handle);
         }
     }
 
@@ -345,12 +286,4 @@ public static class CompanionEdgeLayout
     {
         if (followers.TryGetValue(w, out var follower)) follower.CheckDesktop();
     }
-
-
-    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
-    private static extern nint GetWindowLongPtr(nint hwnd, int index);
-    [DllImport("user32.dll")]
-    private static extern bool SetWindowPos(nint hwnd, nint insertAfter, int x, int y, int cx, int cy, uint flags);
-    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
-    private static extern nint SetWindowLongPtr(nint hwnd, int index, nint value);
 }

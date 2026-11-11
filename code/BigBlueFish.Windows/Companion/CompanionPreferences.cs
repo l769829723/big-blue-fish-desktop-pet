@@ -1,10 +1,28 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace BigBlueFish.Windows;
+internal sealed class CompanionRoleProfile
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = "新角色";
+    public string Prompt { get; set; } = "";
+    public string WeatherPrompt { get; set; } = "";
+    public string NewsPrompt { get; set; } = "";
+
+    internal static CompanionRoleProfile Create(string name) => new()
+    {
+        Name = name,
+        Prompt = $"你现在以“{name}”的身份结合本轮资料自然发言。请遵循这个身份，使用符合身份的第一人称表达，只输出简短、自然、适合直接说出的一段话。不要自称鱼鱼或桌宠，不要称呼对方为主人，也不要编造资料中没有的事实、经历或承诺。",
+        WeatherPrompt = $"这一回以“{name}”的身份，根据天气资料自然分享最值得说的一点，简短表达感受或关心；不要编造出行、活动或其他个人计划。",
+        NewsPrompt = $"这一回以“{name}”的身份自然分享一条科技新闻，先简要说明最重要的事实，再补充一点符合身份的感受。保留资料原有的确定程度，不增加资料中没有的事实、结论或经历。直接输出适合发给他人的一两句中文。"
+    };
+}
+
 internal sealed class CompanionPreferences
 {
     public bool ModelEnabled { get; set; } = true;
@@ -16,6 +34,7 @@ internal sealed class CompanionPreferences
     public bool NewsEnabled { get; set; } = true;
     public bool Chatty { get; set; }
     public string SpeakerRole { get; set; } = "assistant";
+    public List<CompanionRoleProfile> CustomRoles { get; set; } = [];
     public string OwnerPrompt { get; set; } = CompanionDialogue.OwnerPromptDefault;
     public string OwnerWeatherPrompt { get; set; } = CompanionDialogue.OwnerWeatherPromptDefault;
     public string OwnerNewsPrompt { get; set; } = CompanionDialogue.OwnerNewsPromptDefault;
@@ -95,6 +114,31 @@ internal sealed class CompanionPreferences
     public int DinnerHour { get; set; } = 18;
     public string? LastBrushDate { get; set; }
 
+    internal CompanionRoleProfile? SelectedCustomRole => CustomRoles.FirstOrDefault(role => role.Id == SpeakerRole);
+    internal bool IsKnownSpeakerRole(string? role) => role is "assistant" or "owner" || CustomRoles.Any(profile => profile.Id == role);
+
+    internal void ApplySpeakerRole(CompanionBrain brain)
+    {
+        var role = SelectedCustomRole;
+        brain.SpeakAsOwner = SpeakerRole != "assistant";
+        brain.SpeakerRoleName = role?.Name ?? (SpeakerRole == "owner" ? "主人" : "鱼鱼助手");
+        var defaults = role == null ? null : CompanionRoleProfile.Create(role.Name);
+        brain.OwnerPrompt = role == null ? OwnerPrompt : string.IsNullOrWhiteSpace(role.Prompt) ? defaults!.Prompt : role.Prompt;
+        brain.OwnerWeatherPrompt = role == null ? OwnerWeatherPrompt : string.IsNullOrWhiteSpace(role.WeatherPrompt) ? defaults!.WeatherPrompt : role.WeatherPrompt;
+        brain.OwnerNewsPrompt = role == null ? OwnerNewsPrompt : string.IsNullOrWhiteSpace(role.NewsPrompt) ? defaults!.NewsPrompt : role.NewsPrompt;
+    }
+
+    internal void AddCustomRole(string name)
+    {
+        if (CustomRoles.Count >= 20) throw new InvalidOperationException("最多可以添加 20 个自定义角色。");
+        string normalized = name.Trim();
+        if (normalized.Length is 0 or > 40) throw new ArgumentException("角色名称需为 1–40 个字符。", nameof(name));
+        if (CustomRoles.Any(role => string.Equals(role.Name, normalized, StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException("已存在同名角色。", nameof(name));
+        CustomRoles.Add(CompanionRoleProfile.Create(normalized));
+        SpeakerRole = CustomRoles[^1].Id;
+    }
+
     internal static readonly int[] BubbleDurations =
     {
         5,
@@ -145,7 +189,26 @@ internal sealed class CompanionPreferences
                     s.ModelBackend = s.ModelBackend == "api" ? "api" : "builtin";
                     if (s.ModelBackend == "api") s.GpuEnabled = s.StopModelOnBattery = false;
                     s.NewsSource = s.NewsSource is "file" or "api" ? s.NewsSource : "builtin";
-                    s.SpeakerRole = s.SpeakerRole == "owner" ? "owner" : "assistant";
+                    s.CustomRoles ??= [];
+                    s.CustomRoles = s.CustomRoles
+                        .Where(role => role != null && !string.IsNullOrWhiteSpace(role.Id)
+                            && role.Id is not ("assistant" or "owner") && !string.IsNullOrWhiteSpace(role.Name))
+                        .GroupBy(role => role.Id, StringComparer.Ordinal)
+                        .Select(group => group.First())
+                        .Take(20)
+                        .ToList();
+                    var roleNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    s.CustomRoles = s.CustomRoles.Where(role => roleNames.Add(role.Name.Trim())).ToList();
+                    foreach (var role in s.CustomRoles)
+                    {
+                        role.Name = role.Name.Trim();
+                        if (role.Name.Length > 40) role.Name = role.Name[..40];
+                        if (role.Id.Length > 64) role.Id = role.Id[..64];
+                        role.Prompt ??= "";
+                        role.WeatherPrompt ??= "";
+                        role.NewsPrompt ??= "";
+                    }
+                    if (!s.IsKnownSpeakerRole(s.SpeakerRole)) s.SpeakerRole = "assistant";
                     s.OwnerPrompt = string.IsNullOrWhiteSpace(s.OwnerPrompt) ? CompanionDialogue.OwnerPromptDefault : s.OwnerPrompt;
                     s.OwnerWeatherPrompt ??= CompanionDialogue.OwnerWeatherPromptDefault;
                     s.OwnerNewsPrompt = string.IsNullOrWhiteSpace(s.OwnerNewsPrompt) ? CompanionDialogue.OwnerNewsPromptDefault : s.OwnerNewsPrompt;

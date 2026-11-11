@@ -134,12 +134,9 @@ public partial class MainWindow
             StopOnBattery = preferences.StopModelOnBattery,
             WeatherRegionCode = preferences.WeatherRegionCode,
             NewsSource = () => preferences.NewsSource,
-            NewsLocation = () => preferences.ActiveNewsLocation,
-            SpeakAsOwner = preferences.SpeakerRole == "owner",
-            OwnerPrompt = preferences.OwnerPrompt,
-            OwnerWeatherPrompt = preferences.OwnerWeatherPrompt,
-            OwnerNewsPrompt = preferences.OwnerNewsPrompt
+            NewsLocation = () => preferences.ActiveNewsLocation
         };
+        preferences.ApplySpeakerRole(brain);
         InitializeComponent();
         System.Windows.Shell.WindowChrome.SetWindowChrome(this, null);
         AllowsTransparency = true;
@@ -328,9 +325,9 @@ public partial class MainWindow
             SwpNoSize | SwpNoMove | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
     }
 
-    internal void UseCompositionTaskbarWindow(bool enabled)
+    internal void EnsureCaptureWindowDiscoverable()
     {
-        ShowInTaskbar = !enabled;
+        ShowInTaskbar = true;
         EnsureCaptureDiscoverableStyle(new WindowInteropHelper(this).Handle);
     }
 
@@ -425,7 +422,7 @@ public partial class MainWindow
         if (preferences == null)
             return;
         preferences.Left = Left;
-        preferences.Top = Top;
+        preferences.Top = Top + Math.Max(0, Height - SpriteSize - 35.0);
         try
         {
             preferences.Save();

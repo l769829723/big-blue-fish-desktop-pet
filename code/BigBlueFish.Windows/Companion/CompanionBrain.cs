@@ -55,6 +55,7 @@ internal sealed class CompanionBrain : IDisposable
     internal Func<string>? NewsLocation { get; set; }
     internal Func<string>? NewsSource { get; set; }
     internal bool SpeakAsOwner { get; set; }
+    internal string SpeakerRoleName { get; set; } = "主人（电脑使用者本人）";
     internal string OwnerPrompt { get; set; } = CompanionDialogue.OwnerPromptDefault;
     internal string OwnerWeatherPrompt { get; set; } = CompanionDialogue.OwnerWeatherPromptDefault;
     internal string OwnerNewsPrompt { get; set; } = CompanionDialogue.OwnerNewsPromptDefault;
@@ -156,9 +157,11 @@ internal sealed class CompanionBrain : IDisposable
     internal static string OcrSpeechRequest(string context) => ScreenRequest(context);
     internal static string OcrPersona => Persona + CompanionDialogue.OcrObserverGuidance;
     internal const string NewsPersona = CompanionDialogue.NewsPersona;
-    internal static string NewsRequest(string context, bool speakAsOwner = false) => $"当前时间：{DateTime.Now:yyyy-MM-dd HH:mm}\n【本轮单条科技新闻资料】\n" + context
+    internal static string NewsRequest(string context, bool speakAsOwner = false, string? roleName = null) => $"当前时间：{DateTime.Now:yyyy-MM-dd HH:mm}\n【本轮单条科技新闻资料】\n" + context
         + "\n【新闻资料结束】\n" + (speakAsOwner
-            ? "请以使用者本人的身份向当前聊天中的其他人自然分享这条新闻，先简要说明最重要的事实，再补充一点感受。"
+            ? roleName == null
+                ? "请以使用者本人的身份向当前聊天中的其他人自然分享这条新闻，先简要说明最重要的事实，再补充一点感受。"
+                : $"请以“{roleName}”的身份向当前聊天中的其他人自然分享这条新闻，先简要说明最重要的事实，再补充一点感受。"
             : "请直接对主人说两小句：先说这条新闻最重要的事，再说一点自己的感受或对主人的关切。合起来约30–60字。");
 
     internal sealed record ChatMessage(string role, object content);
@@ -634,7 +637,10 @@ internal sealed class CompanionBrain : IDisposable
     }
 
     internal sealed record AgentBriefMaterial(string Text, bool ObserveScreen);
-    private string AgentBrief(string persona, string request = "") => (SpeakAsOwner ? "【主人说话要求】\n本轮角色设定优先于技能中的鱼鱼或助手人设；请作为电脑使用者本人向其他人发言。\n" : "【鱼鱼说话要求】\n")
+    private string AgentBrief(string persona, string request = "") => (SpeakAsOwner
+        ? SpeakerRoleName == "主人" ? "【主人说话要求】\n本轮角色设定优先于技能中的鱼鱼或助手人设；请作为电脑使用者本人向其他人发言。\n"
+            : $"【{SpeakerRoleName}说话要求】\n本轮角色设定优先于技能中的鱼鱼或助手人设；请以“{SpeakerRoleName}”的身份向其他人发言。\n"
+        : "【鱼鱼说话要求】\n")
         + persona + "\n【说话要求结束】" + (request.Length > 0 ? "\n" + request : "");
     internal Task<AgentBriefMaterial> AgentSpeechBrief(bool weatherRequest, bool usePublic, CancellationToken token)
         => AgentSpeechBrief(weatherRequest, usePublic, usePublic, token);
@@ -647,9 +653,11 @@ internal sealed class CompanionBrain : IDisposable
         var news = useNews && CompanionNews.ShouldSelect(newsRoll(), chatty) ? await NewsItem(token) : null;
         token.ThrowIfCancellationRequested();
         if (lastNewsFailure != null) return new(AgentBrief(CompanionDialogue.ForRole(NewsPersona, SpeakAsOwner, OwnerPrompt, OwnerWeatherPrompt, OwnerNewsPrompt),
-            SpeakAsOwner ? "请以使用者本人的身份简短说明：" + lastNewsFailure : "请简短告诉主人：" + lastNewsFailure), false);
+            SpeakAsOwner ? SpeakerRoleName == "主人" ? "请以使用者本人的身份简短说明：" + lastNewsFailure : $"请以“{SpeakerRoleName}”的身份简短说明：" + lastNewsFailure
+                : "请简短告诉主人：" + lastNewsFailure), false);
         if (news != null) { DiagnosticLog.Write(DiagnosticEvent.AgentMaterials, kind: "news"); lastNewsTitle = news.Title; return new(AgentBrief(
-            CompanionDialogue.ForRole(NewsPersona, SpeakAsOwner, OwnerPrompt, OwnerWeatherPrompt, OwnerNewsPrompt), NewsRequest(news.Context, SpeakAsOwner)), false); }
+            CompanionDialogue.ForRole(NewsPersona, SpeakAsOwner, OwnerPrompt, OwnerWeatherPrompt, OwnerNewsPrompt),
+            NewsRequest(news.Context, SpeakAsOwner, SpeakerRoleName == "主人" ? null : SpeakerRoleName)), false); }
         string context = $"现在是{DateTime.Now:yyyy年M月d日 HH:mm}。";
         if (useWeather && Random.Shared.NextDouble() < .15) context += "\n" + WeatherContext();
         DiagnosticLog.Write(DiagnosticEvent.AgentMaterials, kind: "persona");
@@ -702,7 +710,7 @@ internal sealed class CompanionBrain : IDisposable
             if (news != null)
             {
                 DiagnosticLog.Write(DiagnosticEvent.NewsSelected);
-                request = NewsRequest(news.Context, SpeakAsOwner);
+                request = NewsRequest(news.Context, SpeakAsOwner, SpeakerRoleName == "主人" ? null : SpeakerRoleName);
             }
             else
             {

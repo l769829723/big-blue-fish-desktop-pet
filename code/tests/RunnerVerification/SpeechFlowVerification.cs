@@ -9,7 +9,9 @@ using System.Windows.Threading;
 using BigBlueFish.Windows;
 using BigBlueFish.Diagnostics;
 using Application = System.Windows.Application;
+using CheckBox = System.Windows.Controls.CheckBox;
 using ComboBox = System.Windows.Controls.ComboBox;
+using TextBox = System.Windows.Controls.TextBox;
 
 internal static class SpeechFlowVerification
 {
@@ -85,6 +87,29 @@ internal static class SpeechFlowVerification
             }
             Check(CompanionPreferences.NormalizeSpeechMinimum(8) == 10 && CompanionPreferences.NormalizeSpeechMinimum(30) == 20,
                 "old interval settings migrate to supported ranges");
+            var rolePreferences = new CompanionPreferences();
+            rolePreferences.AddCustomRole("旅行顾问");
+            var customRole = rolePreferences.SelectedCustomRole!;
+            customRole.Prompt = "自定义日常提示词";
+            customRole.WeatherPrompt = "自定义天气提示词";
+            customRole.NewsPrompt = "自定义新闻提示词";
+            using (var roleBrain = new CompanionBrain(Process.Start, TimeSpan.FromSeconds(60)))
+            {
+                rolePreferences.ApplySpeakerRole(roleBrain);
+                Check(rolePreferences.IsKnownSpeakerRole(customRole.Id) && roleBrain.SpeakAsOwner
+                    && roleBrain.SpeakerRoleName == "旅行顾问" && roleBrain.OwnerPrompt == customRole.Prompt
+                    && roleBrain.OwnerWeatherPrompt == customRole.WeatherPrompt && roleBrain.OwnerNewsPrompt == customRole.NewsPrompt,
+                    "custom role applies its name and all three prompts to local speech");
+                var agentBrief = roleBrain.AgentSpeechBrief(false, false, false, CancellationToken.None).GetAwaiter().GetResult();
+                Check(agentBrief.Text.Contains("旅行顾问") && agentBrief.Text.Contains("自定义日常提示词"),
+                    "custom role name and prompt are used in Agent speech instructions");
+            }
+            var restoredRoles = JsonSerializer.Deserialize<CompanionPreferences>(JsonSerializer.Serialize(rolePreferences))!;
+            Check(restoredRoles.SpeakerRole == customRole.Id && restoredRoles.SelectedCustomRole?.Name == "旅行顾问"
+                && restoredRoles.SelectedCustomRole.Prompt == "自定义日常提示词"
+                && restoredRoles.SelectedCustomRole.WeatherPrompt == "自定义天气提示词"
+                && restoredRoles.SelectedCustomRole.NewsPrompt == "自定义新闻提示词",
+                "custom role selection and prompt profiles survive preferences serialization");
             window = new MainWindow(); window.Show();
             Wait(() => (bool)Field(window, "companionReady")!, "actual animations load", 15);
             ((DispatcherTimer)Field(window, "companionTimer")!).Stop();
@@ -261,8 +286,8 @@ internal static class SpeechFlowVerification
             Console.WriteLine("REAL RECOVERY " + ((TextBlock)Field(window, "bubbleText")!).Text);
 #if !COMPANION_SAFE
             prefs.AgentEnabled = true; prefs.AgentDailySpeech = true;
-            var weather = Field(brain, "weather")!;
-            var entries = (System.Collections.IDictionary)Field(weather, "entries")!;
+            var weatherFixture = Field(brain, "weather")!;
+            var entries = (System.Collections.IDictionary)Field(weatherFixture, "entries")!;
             entries[prefs.WeatherRegionCode] = new CompanionWeather.Entry(prefs.WeatherRegionCode, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "PRIVATE-WEATHER-CONTEXT");
             Invoke(window, "ShowCompanionNotice", "unchanged existing bubble", false, true);
             string prior = ((TextBlock)Field(window, "bubbleText")!).Text;
