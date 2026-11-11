@@ -14,7 +14,9 @@ using System.Windows.Threading;
 public static class CompanionEdgeLayout
 {
     private static int bubbleVisible;
+    private static long bubbleHandle;
     internal static bool HasVisibleBubble => System.Threading.Volatile.Read(ref bubbleVisible) != 0;
+    internal static IntPtr BubbleWindowHandle => new(System.Threading.Interlocked.Read(ref bubbleHandle));
     private sealed class Follow
     {
         private readonly Window pet;
@@ -93,6 +95,7 @@ public static class CompanionEdgeLayout
             textChange.RemoveValueChanged(text, Changed);
             if (popup != null)
             {
+                System.Threading.Interlocked.CompareExchange(ref bubbleHandle, 0, new WindowInteropHelper(popup).Handle.ToInt64());
                 popup.Content = null;
                 popup.Close();
             }
@@ -120,6 +123,7 @@ public static class CompanionEdgeLayout
                 popup.SourceInitialized += (object? s, EventArgs e) =>
                 {
                     nint handle = new WindowInteropHelper(popup).Handle;
+                    System.Threading.Interlocked.Exchange(ref bubbleHandle, handle.ToInt64());
                     SetWindowLongPtr(handle, -20, new IntPtr(((IntPtr)GetWindowLongPtr(handle, -20)).ToInt64() | 0x8000080));
                     HwndSource.FromHwnd(handle)?.AddHook(NoActivate);
                 };
@@ -203,6 +207,8 @@ public static class CompanionEdgeLayout
                 {
                     popup.Show();
                     Place(left, top);
+                    BigBlueFish.Diagnostics.DiagnosticLog.Write(BigBlueFish.Diagnostics.DiagnosticEvent.BubbleShown,
+                        state: "visible");
                     QueueUpdate();
                 }
                 System.Threading.Volatile.Write(ref bubbleVisible, 1);
@@ -218,7 +224,7 @@ public static class CompanionEdgeLayout
         {
             System.Windows.Point screen = pet.PointToScreen(new System.Windows.Point(left - pet.Left, top - pet.Top));
             nint handle = new WindowInteropHelper(popup!).EnsureHandle();
-            SetWindowPos(handle, IntPtr.Zero, (int)Math.Round(screen.X), (int)Math.Round(screen.Y), 0, 0, 0x0001 | 0x0004 | 0x0010);
+            SetWindowPos(handle, new IntPtr(-1), (int)Math.Round(screen.X), (int)Math.Round(screen.Y), 0, 0, 0x0001 | 0x0004 | 0x0010);
         }
     }
 

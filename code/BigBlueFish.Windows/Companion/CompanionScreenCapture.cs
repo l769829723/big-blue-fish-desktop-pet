@@ -69,8 +69,12 @@ internal static class CompanionScreenCapture
             var monitor = System.Windows.Forms.Screen.FromPoint(System.Windows.Forms.Cursor.Position);
             captureRect = Rectangle.Intersect(windowRect, monitor.Bounds);
         }
-        var width = windowRect.Width;
-        var height = windowRect.Height;
+        bool captureScreen = CompanionEdgeLayout.HasVisibleBubble;
+        if (captureScreen && CompanionEdgeLayout.BubbleWindowHandle is var bubbleHandle
+            && bubbleHandle != IntPtr.Zero && CompanionNative.GetWindowRect(bubbleHandle, out var bubbleWindow))
+            captureRect = Rectangle.Union(captureRect, Rectangle.FromLTRB(bubbleWindow.Left, bubbleWindow.Top, bubbleWindow.Right, bubbleWindow.Bottom));
+        var width = captureScreen ? captureRect.Width : windowRect.Width;
+        var height = captureScreen ? captureRect.Height : windowRect.Height;
         if (captureRect.Width < 32 || captureRect.Height < 32 || width > 12000 || height > 12000)
             return null;
 
@@ -78,9 +82,9 @@ internal static class CompanionScreenCapture
         using (var graphics = Graphics.FromImage(bitmap))
         {
             bool captured;
-            if (CompanionEdgeLayout.HasVisibleBubble)
+            if (captureScreen)
             {
-                graphics.CopyFromScreen(windowRect.Left, windowRect.Top, 0, 0, windowRect.Size, CopyPixelOperation.SourceCopy);
+                graphics.CopyFromScreen(captureRect.Left, captureRect.Top, 0, 0, captureRect.Size, CopyPixelOperation.SourceCopy);
                 captured = true;
             }
             else
@@ -107,7 +111,7 @@ internal static class CompanionScreenCapture
         // large text while keeping the first-token wait substantially shorter.
         // PrintWindow can reset the destination DC origin, so crop the rendered pixels
         // afterwards rather than relying on a translated GDI viewport.
-        using var cropped = captureRect == windowRect ? null : bitmap.Clone(new Rectangle(
+        using var cropped = captureScreen || captureRect == windowRect ? null : bitmap.Clone(new Rectangle(
             captureRect.Left - windowRect.Left, captureRect.Top - windowRect.Top,
             captureRect.Width, captureRect.Height), PixelFormat.Format32bppArgb);
         using var normalized = Resize(cropped ?? bitmap, maxDimension);
