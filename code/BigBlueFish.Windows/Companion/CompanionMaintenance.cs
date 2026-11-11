@@ -63,7 +63,13 @@ public partial class MainWindow
         if (companionSettings?.IsVisible == true) dialog.Owner = companionSettings;
         dialog.Closed += (_, _) => {
             if (updateWindow == dialog) updateWindow = null;
-            if (dialog.InstallerStarted && !companionClosed && !exitAnimation && !exitReady) base.Close();
+            if (dialog.InstallerStarted && !companionClosed && !exitAnimation && !exitReady)
+            {
+                // The elevated installer is waiting for this exact process. Skip
+                // the farewell animation so the PID wait cannot time out.
+                exitReady = true;
+                base.Close();
+            }
         };
         dialog.Show();
     }

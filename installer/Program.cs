@@ -99,7 +99,16 @@ internal sealed class InstallerForm : ModernWindow
                 status.Text = "正在等待桌宠退出…";
                 if (waitPid > 0)
                 {
-                    try { using var previous = Process.GetProcessById(waitPid); using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(40)); await previous.WaitForExitAsync(timeout.Token); }
+                    try
+                    {
+                        using var previous = Process.GetProcessById(waitPid);
+                        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(40));
+                        await previous.WaitForExitAsync(timeout.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw new IOException("桌宠未能及时退出，更新已停止。请先手动退出桌宠，再重新运行更新程序。");
+                    }
                     catch (ArgumentException) { }
                 }
             }
