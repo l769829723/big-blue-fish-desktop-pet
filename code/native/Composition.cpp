@@ -98,9 +98,12 @@ extern "C" __declspec(dllexport) HRESULT surface_create(HWND owner,void(__cdecl*
     s->window=CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP|WS_EX_APPWINDOW|WS_EX_NOACTIVATE,L"BigBlueFish.Composition",L"蓝色大肥鱼",WS_POPUP,0,0,1,1,owner,nullptr,GetModuleHandleW(nullptr),s);
     HRESULT hr=s->window?S_OK:HRESULT_FROM_WIN32(GetLastError());
     if(SUCCEEDED(hr)) {
-        HICON big=(HICON)SendMessageW(owner,WM_GETICON,ICON_BIG,0),small=(HICON)SendMessageW(owner,WM_GETICON,ICON_SMALL,0);
-        if(!big)big=(HICON)GetClassLongPtrW(owner,GCLP_HICON);if(!small)small=(HICON)GetClassLongPtrW(owner,GCLP_HICONSM);
-        if(big)SendMessageW(s->window,WM_SETICON,ICON_BIG,(LPARAM)big);if(small)SendMessageW(s->window,WM_SETICON,ICON_SMALL,(LPARAM)small);
+        HICON iconBig=(HICON)SendMessageW(owner,WM_GETICON,ICON_BIG,0);
+        HICON iconSmall=(HICON)SendMessageW(owner,WM_GETICON,ICON_SMALL,0);
+        if(!iconBig)iconBig=(HICON)GetClassLongPtrW(owner,GCLP_HICON);
+        if(!iconSmall)iconSmall=(HICON)GetClassLongPtrW(owner,GCLP_HICONSM);
+        if(iconBig)SendMessageW(s->window,WM_SETICON,ICON_BIG,(LPARAM)iconBig);
+        if(iconSmall)SendMessageW(s->window,WM_SETICON,ICON_SMALL,(LPARAM)iconSmall);
     }
     if(SUCCEEDED(hr))hr=DCompositionCreateDevice(nullptr,__uuidof(IDCompositionDevice),(void**)s->device.GetAddressOf());
     if(SUCCEEDED(hr))hr=s->device->CreateTargetForHwnd(s->window,TRUE,&s->target);
