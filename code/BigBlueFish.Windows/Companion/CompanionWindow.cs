@@ -135,7 +135,10 @@ public partial class MainWindow
             WeatherRegionCode = preferences.WeatherRegionCode,
             NewsSource = () => preferences.NewsSource,
             NewsLocation = () => preferences.ActiveNewsLocation,
-            SpeakAsOwner = preferences.SpeakerRole == "owner"
+            SpeakAsOwner = preferences.SpeakerRole == "owner",
+            OwnerPrompt = preferences.OwnerPrompt,
+            OwnerWeatherPrompt = preferences.OwnerWeatherPrompt,
+            OwnerNewsPrompt = preferences.OwnerNewsPrompt
         };
         InitializeComponent();
         System.Windows.Shell.WindowChrome.SetWindowChrome(this, null);

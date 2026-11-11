@@ -225,6 +225,61 @@ public partial class MainWindow
             InvalidateSpeechRequests();
             SaveCompanion();
         };
+        p.Children.Add(new TextBlock
+        {
+            Text = "主人模式提示词（时间、屏幕、天气和新闻资料由程序单独提供，无需插入模板变量）",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 12, 0, 6),
+            Foreground = Brushes.SlateGray
+        });
+        void OwnerPromptEditor(string label, string value, string defaultValue, Action<string> save)
+        {
+            var header = new DockPanel { Margin = new Thickness(0, 8, 0, 4) };
+            var reset = new Button { Content = "恢复默认", Padding = new Thickness(8, 3, 8, 3), HorizontalAlignment = HorizontalAlignment.Right };
+            reset.ToolTip = label;
+            DockPanel.SetDock(reset, Dock.Right);
+            header.Children.Add(reset);
+            header.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+            p.Children.Add(header);
+            var editor = new TextBox
+            {
+                Text = value,
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                MinHeight = label == "主人普通说话提示词" ? 210 : 120,
+                MaxLength = 16000
+            };
+            System.Windows.Automation.AutomationProperties.SetName(editor, label);
+            p.Children.Add(editor);
+            void SavePrompt(string text)
+            {
+                if (string.IsNullOrWhiteSpace(text) && label != "主人天气提示词") text = defaultValue;
+                editor.Text = text;
+                save(text);
+                InvalidateSpeechRequests();
+                SaveCompanion();
+            }
+            editor.LostKeyboardFocus += (_, _) =>
+            {
+                string text = editor.Text;
+                if (string.IsNullOrWhiteSpace(text) && label != "主人天气提示词") text = defaultValue;
+                if (text != value) { value = text; SavePrompt(text); }
+            };
+            reset.Click += (_, _) => { value = defaultValue; editor.Text = defaultValue; SavePrompt(defaultValue); };
+        }
+        OwnerPromptEditor("主人普通说话提示词", preferences.OwnerPrompt, CompanionDialogue.OwnerPromptDefault, text =>
+        {
+            preferences.OwnerPrompt = text; brain.OwnerPrompt = text;
+        });
+        OwnerPromptEditor("主人天气提示词", preferences.OwnerWeatherPrompt, CompanionDialogue.OwnerWeatherPromptDefault, text =>
+        {
+            preferences.OwnerWeatherPrompt = text; brain.OwnerWeatherPrompt = text;
+        });
+        OwnerPromptEditor("主人科技新闻提示词", preferences.OwnerNewsPrompt, CompanionDialogue.OwnerNewsPromptDefault, text =>
+        {
+            preferences.OwnerNewsPrompt = text; brain.OwnerNewsPrompt = text;
+        });
         newsEnabled = Toggle("主题灵感", preferences.NewsEnabled, v =>
         {
             preferences.NewsEnabled = v;

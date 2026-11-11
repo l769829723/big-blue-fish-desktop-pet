@@ -33,6 +33,7 @@ internal sealed partial class LinuxPetWindow
         brain.RefreshModelAvailability();
         brain.StopOnBattery = Preferences.StopModelOnBattery; brain.WeatherRegionCode = Preferences.WeatherRegionCode;
         brain.SpeakAsOwner = Preferences.SpeakerRole == "owner";
+        brain.OwnerPrompt = Preferences.OwnerPrompt; brain.OwnerWeatherPrompt = Preferences.OwnerWeatherPrompt; brain.OwnerNewsPrompt = Preferences.OwnerNewsPrompt;
         ConfigureAgent();
         Rescale(); var appliedPosition = Clamp(requestedPosition); nextSpeech = DateTime.UtcNow.Add(Preferences.NextSpeechDelay(random)); nextEvent = DateTime.UtcNow.AddSeconds(Preferences.AnimationIntervalSeconds); nextWarmup = DateTime.MinValue;
         if (!Preferences.HideOnFullscreen && fullscreenHidden) { fullscreenHidden = false; if (!hidden) Show(); }
@@ -139,6 +140,28 @@ internal sealed partial class LinuxPetWindow
             int publicInfoIndex = body.Children.Count;
             Select("角色定位", new[] { "助手（默认）", "主人" }, Preferences.SpeakerRole == "owner" ? 1 : 0,
                 value => { Preferences.SpeakerRole = value == 1 ? "owner" : "assistant"; ApplySettings(); });
+            body.Children.Add(Paragraph("主人模式提示词。时间、屏幕、天气和新闻资料由程序作为独立上下文提供，不需要模板变量。"));
+            void OwnerPromptEditor(string label, string value, string defaultValue, Action<string> save) {
+                var editor = new TextBox { Text = value, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                    Height = label == "主人普通说话提示词" ? 210 : 120, MaxLength = 16000 };
+                var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(0, 8, 0, 2) };
+                header.Children.Add(new TextBlock { Text = label, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center });
+                var reset = ActionButton("恢复默认", () => { value = defaultValue; editor.Text = defaultValue; save(defaultValue); });
+                Grid.SetColumn(reset, 1); header.Children.Add(reset); body.Children.Add(header);
+                editor.LostFocus += (_, _) => {
+                    var text = editor.Text ?? "";
+                    if (string.IsNullOrWhiteSpace(text) && label != "主人天气提示词") text = defaultValue;
+                    editor.Text = text;
+                    if (text != value) { value = text; save(text); }
+                };
+                body.Children.Add(editor);
+            }
+            OwnerPromptEditor("主人普通说话提示词", Preferences.OwnerPrompt, CompanionDialogue.OwnerPromptDefault,
+                text => { Preferences.OwnerPrompt = text; ApplySettings(); });
+            OwnerPromptEditor("主人天气提示词", Preferences.OwnerWeatherPrompt, CompanionDialogue.OwnerWeatherPromptDefault,
+                text => { Preferences.OwnerWeatherPrompt = text; ApplySettings(); });
+            OwnerPromptEditor("主人科技新闻提示词", Preferences.OwnerNewsPrompt, CompanionDialogue.OwnerNewsPromptDefault,
+                text => { Preferences.OwnerNewsPrompt = text; ApplySettings(); });
             newsEnabled = Toggle("主题灵感", Preferences.NewsEnabled, value => { Preferences.NewsEnabled = value; if (!synchronizingPublicInfo) ApplySettings(); });
             newsEnabled.IsEnabled = Preferences.PublicInfo;
             var chatty = Toggle("随聊", Preferences.Chatty, value => { Preferences.Chatty = value; ApplySettings(); });

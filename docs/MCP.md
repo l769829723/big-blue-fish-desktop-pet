@@ -23,6 +23,8 @@
 | PublicInfo | bool | 天气与主题灵感总开关；修改时同步关闭或开启天气、主题灵感子选项 |
 | Chatty | bool | 随聊；主题灵感开启时，每轮自动说话都尝试选取；关闭时每轮概率为3% |
 | SpeakerRole | `assistant` / `owner` | LLM 与 Agent 说话身份；默认助手，owner 以电脑使用者本人身份向当前聊天中的其他人发言 |
+
+主人模式的 `OwnerPrompt`、`OwnerWeatherPrompt`、`OwnerNewsPrompt` 在桌面设置的角色定位区域编辑并持久化；它们不属于 MCP 可写字段。动态时间和屏幕、天气、新闻资料由宿主单独提供，不需写入模板变量。
 | ForegroundEnabled | bool | 内置模型读屏及 Agent 日常关心附图；不控制显式截图工具 |
 | StopModelOnBattery | bool | 离电暂停并卸载内置模型 |
 | HideOnFullscreen | bool | 外部全屏时自动隐藏 |

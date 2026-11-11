@@ -218,6 +218,13 @@ internal static class Program
                     && brief.Contains("屏幕资料结束") && !brief.Contains(CompanionDialogue.OcrObserverGuidance), "Agent brief carries the local fixed persona and screen material");
                 Check(briefs.Count >= 2 && briefs.All(b => b.Contains("这一回可以")), "Agent brief rolls the same random reaction hint per event");
                 Check((await briefBrain.AgentSpeechBrief(true, false, CancellationToken.None)).Text.Contains(CompanionBrain.WeatherPersona), "Agent weather brief uses the weather persona");
+                briefBrain.SpeakAsOwner = true; briefBrain.OwnerPrompt = "CUSTOM OWNER PROMPT"; briefBrain.OwnerWeatherPrompt = "CUSTOM WEATHER PROMPT";
+                var ownerBrief = await briefBrain.AgentSpeechBrief(false, false, CancellationToken.None);
+                Check(ownerBrief.Text.Contains("CUSTOM OWNER PROMPT") && ownerBrief.Text.Contains("屏幕资料结束")
+                    && !ownerBrief.Text.Contains("你是蓝色大肥鱼"), "Agent ordinary brief uses the configured owner prompt instead of assistant persona");
+                var ownerWeatherBrief = await briefBrain.AgentSpeechBrief(true, false, CancellationToken.None);
+                Check(ownerWeatherBrief.Text.Contains("CUSTOM OWNER PROMPT") && ownerWeatherBrief.Text.Contains("CUSTOM WEATHER PROMPT"),
+                    "Agent weather brief composes configured owner and weather prompts");
             }
             Console.WriteLine($"RESULT {checks} runner/prompt checks passed ({CompanionBrain.InputMode}); child responses are fault fixtures, not real model evaluation");
             return 0;

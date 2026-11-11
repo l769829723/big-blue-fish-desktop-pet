@@ -62,6 +62,14 @@ internal static class NewsVerification
         Check(((string)ownerMessages[1].content).Contains("当前聊天中的其他人")
             && !((string)ownerMessages[1].content).Contains("对主人说"),
             "owner-mode news request addresses conversation partners rather than the user");
+        var customizedOwnerMessages = CompanionBrain.BuildMessages(CompanionBrain.NewsPersona, CompanionBrain.NewsRequest(items[0].Context, true),
+            speakAsOwner: true, ownerNewsPrompt: "CUSTOM OWNER NEWS PROMPT");
+        Check((string)customizedOwnerMessages[0].content == "CUSTOM OWNER NEWS PROMPT",
+            "custom owner news prompt replaces its default system prompt");
+        var customizedWeather = CompanionBrain.BuildMessages(CompanionBrain.WeatherPersona, CompanionBrain.WeatherRequest("天气资料"),
+            speakAsOwner: true, ownerPrompt: "CUSTOM OWNER VOICE", ownerWeatherPrompt: "CUSTOM OWNER WEATHER");
+        Check((string)customizedWeather[0].content == "CUSTOM OWNER VOICE\nCUSTOM OWNER WEATHER",
+            "weather prompt composes the editable owner voice and weather extension");
         var ownerScreen = CompanionBrain.BuildMessages(CompanionBrain.OcrPersona,
             CompanionBrain.OcrSpeechRequest("聊天正文：明天见。"), speakAsOwner: true);
         Check(((string)ownerScreen[0].content).Contains("屏幕、截图和OCR文字")

@@ -47,7 +47,7 @@ public static class DiagnosticLog
         + "claude codex gemini dsh kimi qwen antigravity copilot cursor opencode cline codebuddy qoder trae kiro pi devin grok hermes openclaw minimax").Split(' ', StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal);
     static readonly HashSet<string> actions = LoadActions();
     static readonly Dictionary<string, string> previousSettings = new();
-    static readonly HashSet<string> settingNames = new(("ModelEnabled ModelBackend LocalLlamaApiUrl GpuEnabled PublicInfo WeatherEnabled NewsEnabled Chatty SpeakerRole ForegroundEnabled StopModelOnBattery HideOnFullscreen CheckUpdatesOnStartup "
+    static readonly HashSet<string> settingNames = new(("ModelEnabled ModelBackend LocalLlamaApiUrl GpuEnabled PublicInfo WeatherEnabled NewsEnabled Chatty SpeakerRole OwnerPrompt OwnerWeatherPrompt OwnerNewsPrompt ForegroundEnabled StopModelOnBattery HideOnFullscreen CheckUpdatesOnStartup "
         + "NewsSource NewsFilePath NewsApiUrl "
         + "AgentEnabled AgentHarnessId AgentDailySpeech PuppetMode AgentRespondToClick AgentRespondToDrag WeatherRegionCode Scale BubbleScale SpeechMinMinutes SpeechInterval BubbleDurationIndex "
         + "AnimationIntervalSeconds BreakfastHour LunchHour DinnerHour LastBrushDate Left Top StartupEnabled "

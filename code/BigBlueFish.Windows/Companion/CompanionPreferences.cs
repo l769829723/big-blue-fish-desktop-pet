@@ -16,6 +16,9 @@ internal sealed class CompanionPreferences
     public bool NewsEnabled { get; set; } = true;
     public bool Chatty { get; set; }
     public string SpeakerRole { get; set; } = "assistant";
+    public string OwnerPrompt { get; set; } = CompanionDialogue.OwnerPromptDefault;
+    public string OwnerWeatherPrompt { get; set; } = CompanionDialogue.OwnerWeatherPromptDefault;
+    public string OwnerNewsPrompt { get; set; } = CompanionDialogue.OwnerNewsPromptDefault;
     internal void SetPublicInfo(bool enabled)
     {
         PublicInfo = enabled;
@@ -143,6 +146,9 @@ internal sealed class CompanionPreferences
                     if (s.ModelBackend == "api") s.GpuEnabled = s.StopModelOnBattery = false;
                     s.NewsSource = s.NewsSource is "file" or "api" ? s.NewsSource : "builtin";
                     s.SpeakerRole = s.SpeakerRole == "owner" ? "owner" : "assistant";
+                    s.OwnerPrompt = string.IsNullOrWhiteSpace(s.OwnerPrompt) ? CompanionDialogue.OwnerPromptDefault : s.OwnerPrompt;
+                    s.OwnerWeatherPrompt ??= CompanionDialogue.OwnerWeatherPromptDefault;
+                    s.OwnerNewsPrompt = string.IsNullOrWhiteSpace(s.OwnerNewsPrompt) ? CompanionDialogue.OwnerNewsPromptDefault : s.OwnerNewsPrompt;
                     if (string.IsNullOrWhiteSpace(s.NewsFilePath) && s.NewsSource == "file") s.NewsFilePath = s.NewsLocation;
                     if (string.IsNullOrWhiteSpace(s.NewsApiUrl) && s.NewsSource == "api") s.NewsApiUrl = s.NewsLocation;
 #if COMPANION_SAFE

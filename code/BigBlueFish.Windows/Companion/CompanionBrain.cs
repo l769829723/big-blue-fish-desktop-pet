@@ -55,6 +55,9 @@ internal sealed class CompanionBrain : IDisposable
     internal Func<string>? NewsLocation { get; set; }
     internal Func<string>? NewsSource { get; set; }
     internal bool SpeakAsOwner { get; set; }
+    internal string OwnerPrompt { get; set; } = CompanionDialogue.OwnerPromptDefault;
+    internal string OwnerWeatherPrompt { get; set; } = CompanionDialogue.OwnerWeatherPromptDefault;
+    internal string OwnerNewsPrompt { get; set; } = CompanionDialogue.OwnerNewsPromptDefault;
     internal bool CanRunOnCurrentPower => !StopOnBattery || CompanionNative.OnAC;
     private DateTime nextModelCheck;
     private bool modelAvailable;
@@ -159,13 +162,15 @@ internal sealed class CompanionBrain : IDisposable
             : "请直接对主人说两小句：先说这条新闻最重要的事，再说一点自己的感受或对主人的关切。合起来约30–60字。");
 
     internal sealed record ChatMessage(string role, object content);
-    internal static string FixedSpeechInstructions(string persona, bool speakAsOwner = false) => speakAsOwner
-        ? CompanionDialogue.ForRole(persona, true)
+    internal static string FixedSpeechInstructions(string persona, bool speakAsOwner = false, string? ownerPrompt = null,
+        string? ownerWeatherPrompt = null, string? ownerNewsPrompt = null) => speakAsOwner
+        ? CompanionDialogue.ForRole(persona, true, ownerPrompt, ownerWeatherPrompt, ownerNewsPrompt)
         : persona + "\n本次只说鱼鱼最想说的那一小句，一个自然可爱的小反应就好。\n";
-    internal static ChatMessage[] BuildMessages(string persona, string request, CompanionWindowImage? image = null, bool speakAsOwner = false)
+    internal static ChatMessage[] BuildMessages(string persona, string request, CompanionWindowImage? image = null, bool speakAsOwner = false,
+        string? ownerPrompt = null, string? ownerWeatherPrompt = null, string? ownerNewsPrompt = null)
     {
         if (speakAsOwner)
-            persona = FixedSpeechInstructions(persona, true);
+            persona = CompanionDialogue.ForRole(persona, true, ownerPrompt, ownerWeatherPrompt, ownerNewsPrompt);
         else if (persona == Persona || persona == OcrPersona)
             persona = FixedSpeechInstructions(persona) + CompanionDialogue.ReactionHint();
         object content = image == null ? request : new object[]
@@ -394,7 +399,9 @@ internal sealed class CompanionBrain : IDisposable
         // Qwen's recurrent state can only rewind to a saved checkpoint. A short
         // fixed-prefix prefill creates one before the variable reaction and OCR,
         // without storing any user's screen data or generating a visible reply.
-        string prefix = FixedSpeechInstructions(InputMode == "OCR" ? OcrPersona : Persona, SpeakAsOwner);
+        string prefix = SpeakAsOwner
+            ? CompanionDialogue.ForRole(InputMode == "OCR" ? OcrPersona : Persona, true, OwnerPrompt, OwnerWeatherPrompt, OwnerNewsPrompt)
+            : FixedSpeechInstructions(InputMode == "OCR" ? OcrPersona : Persona);
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
         limit.CancelAfter(TimeSpan.FromSeconds(8));
         var prefillToken = limit.Token;
@@ -486,7 +493,7 @@ internal sealed class CompanionBrain : IDisposable
 
     private async Task<string> CompleteRequest(string persona, string request, double temperature, CancellationToken token, CompanionWindowImage? image = null, Action<string>? onPartial = null)
     {
-        var messages = BuildMessages(persona, request, image, SpeakAsOwner);
+        var messages = BuildMessages(persona, request, image, SpeakAsOwner, OwnerPrompt, OwnerWeatherPrompt, OwnerNewsPrompt);
         LastTimings = null;
         object payload = UseExternalApi
             ? new
@@ -635,19 +642,19 @@ internal sealed class CompanionBrain : IDisposable
     internal async Task<AgentBriefMaterial> AgentSpeechBrief(bool weatherRequest, bool useWeather, bool useNews, CancellationToken token, bool chatty = false)
     {
         token.ThrowIfCancellationRequested();
-        if (weatherRequest) { DiagnosticLog.Write(DiagnosticEvent.AgentMaterials, kind: "weather"); return new(AgentBrief(CompanionDialogue.ForRole(WeatherPersona, SpeakAsOwner)), false); } // Event payload carries the weather data.
+        if (weatherRequest) { DiagnosticLog.Write(DiagnosticEvent.AgentMaterials, kind: "weather"); return new(AgentBrief(CompanionDialogue.ForRole(WeatherPersona, SpeakAsOwner, OwnerPrompt, OwnerWeatherPrompt, OwnerNewsPrompt)), false); } // Event payload carries the weather data.
         lastNewsFailure = null;
         var news = useNews && CompanionNews.ShouldSelect(newsRoll(), chatty) ? await NewsItem(token) : null;
         token.ThrowIfCancellationRequested();
-        if (lastNewsFailure != null) return new(AgentBrief(CompanionDialogue.ForRole(NewsPersona, SpeakAsOwner),
+        if (lastNewsFailure != null) return new(AgentBrief(CompanionDialogue.ForRole(NewsPersona, SpeakAsOwner, OwnerPrompt, OwnerWeatherPrompt, OwnerNewsPrompt),
             SpeakAsOwner ? "请以使用者本人的身份简短说明：" + lastNewsFailure : "请简短告诉主人：" + lastNewsFailure), false);
         if (news != null) { DiagnosticLog.Write(DiagnosticEvent.AgentMaterials, kind: "news"); lastNewsTitle = news.Title; return new(AgentBrief(
-            CompanionDialogue.ForRole(NewsPersona, SpeakAsOwner), NewsRequest(news.Context, SpeakAsOwner)), false); }
+            CompanionDialogue.ForRole(NewsPersona, SpeakAsOwner, OwnerPrompt, OwnerWeatherPrompt, OwnerNewsPrompt), NewsRequest(news.Context, SpeakAsOwner)), false); }
         string context = $"现在是{DateTime.Now:yyyy年M月d日 HH:mm}。";
         if (useWeather && Random.Shared.NextDouble() < .15) context += "\n" + WeatherContext();
         DiagnosticLog.Write(DiagnosticEvent.AgentMaterials, kind: "persona");
         var speechPersona = SpeakAsOwner
-            ? CompanionDialogue.ForRole(Persona, true)
+            ? CompanionDialogue.ForRole(Persona, true, OwnerPrompt, OwnerWeatherPrompt, OwnerNewsPrompt)
             : FixedSpeechInstructions(Persona) + CompanionDialogue.ReactionHint();
         return new(AgentBrief(speechPersona, SpeechRequest(context)), true);
     }

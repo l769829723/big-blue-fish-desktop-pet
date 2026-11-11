@@ -95,6 +95,10 @@ internal static class SpeechFlowVerification
             Check(prefs.NewsSource == "builtin", "removed custom RSS settings migrate to built-in technology news");
             Check(prefs.SpeakerRole == "assistant" && !brain.SpeakAsOwner,
                 "missing speaker role defaults to the assistant persona");
+            Check(prefs.OwnerPrompt == CompanionDialogue.OwnerPromptDefault
+                && prefs.OwnerWeatherPrompt == CompanionDialogue.OwnerWeatherPromptDefault
+                && prefs.OwnerNewsPrompt == CompanionDialogue.OwnerNewsPromptDefault,
+                "owner prompt settings default to the reviewed prompt set");
             Invoke(window, "OpenCompanionSettings"); Pump(150);
             var settingsWindow = (Window)Field(window, "companionSettings")!;
             Children<System.Windows.Controls.Button>(settingsWindow).Single(b => (string?)b.Content == "日志控制台")
@@ -127,6 +131,23 @@ internal static class SpeechFlowVerification
             var role = Children<ComboBox>(settingsWindow).Single(c => c.Items.Count == 2 && c.Items[0]?.ToString() == "助手（默认）");
             Check(role.Items.Cast<string>().SequenceEqual(new[] { "助手（默认）", "主人" }),
                 "role selector offers the assistant default and owner perspective");
+            var ownerPromptEditor = Children<TextBox>(settingsWindow)
+                .Single(t => System.Windows.Automation.AutomationProperties.GetName(t) == "主人普通说话提示词");
+            var ownerWeatherEditor = Children<TextBox>(settingsWindow)
+                .Single(t => System.Windows.Automation.AutomationProperties.GetName(t) == "主人天气提示词");
+            var ownerNewsEditor = Children<TextBox>(settingsWindow)
+                .Single(t => System.Windows.Automation.AutomationProperties.GetName(t) == "主人科技新闻提示词");
+            Check(ownerPromptEditor.AcceptsReturn && ownerWeatherEditor.AcceptsReturn && ownerNewsEditor.AcceptsReturn
+                && ownerPromptEditor.Text == CompanionDialogue.OwnerPromptDefault,
+                "role settings expose editable multiline default, weather, and news prompts");
+            ownerPromptEditor.Focus(); ownerPromptEditor.Text = "自定义主人说话提示"; role.Focus(); Pump(100);
+            Check(prefs.OwnerPrompt == "自定义主人说话提示" && brain.OwnerPrompt == prefs.OwnerPrompt
+                && JsonDocument.Parse(File.ReadAllText("preferences.json")).RootElement.GetProperty("OwnerPrompt").GetString() == prefs.OwnerPrompt,
+                "owner prompt edits apply and persist when the editor loses focus");
+            Children<System.Windows.Controls.Button>(settingsWindow)
+                .Single(b => (string?)b.ToolTip == "主人普通说话提示词").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); Pump(100);
+            Check(prefs.OwnerPrompt == CompanionDialogue.OwnerPromptDefault && ownerPromptEditor.Text == prefs.OwnerPrompt,
+                "owner prompt editor restores the built-in default");
             role.SelectedIndex = 1; Pump(100);
             Check(prefs.SpeakerRole == "owner" && brain.SpeakAsOwner
                 && JsonDocument.Parse(File.ReadAllText("preferences.json")).RootElement.GetProperty("SpeakerRole").GetString() == "owner",

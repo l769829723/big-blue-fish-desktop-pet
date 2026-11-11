@@ -57,7 +57,8 @@ internal sealed partial class LinuxPetWindow : Window
         brain = new() { UseGpu = Preferences.GpuEnabled, UseExternalApi = Preferences.ModelBackend == "api", ExternalApiUrl = Preferences.LocalLlamaApiUrl,
             StopOnBattery = Preferences.StopModelOnBattery, WeatherRegionCode = Preferences.WeatherRegionCode,
             NewsSource = () => Preferences.NewsSource, NewsLocation = () => Preferences.ActiveNewsLocation,
-            SpeakAsOwner = Preferences.SpeakerRole == "owner" };
+            SpeakAsOwner = Preferences.SpeakerRole == "owner", OwnerPrompt = Preferences.OwnerPrompt,
+            OwnerWeatherPrompt = Preferences.OwnerWeatherPrompt, OwnerNewsPrompt = Preferences.OwnerNewsPrompt };
         Title = "蓝色大肥鱼"; WindowDecorations = WindowDecorations.None; ShowInTaskbar = false; ShowActivated = false;
         Topmost = true; CanResize = false; Background = Brushes.Transparent; TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
         var canvas = new Grid(); canvas.Children.Add(sprite); canvas.Children.Add(loading); Content = canvas;
@@ -325,4 +326,3 @@ internal sealed partial class LinuxPetWindow : Window
     }
     void CloseImmediately() { exitReady = true; Close(); }
 }
-
