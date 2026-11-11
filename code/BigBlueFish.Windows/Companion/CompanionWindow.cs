@@ -779,7 +779,7 @@ public partial class MainWindow
             {
                 streamed = true;
                 ShowCompanionPartial(partial, version, agentTriggered);
-            });
+            }, chatty: preferences.Chatty);
         }
         finally
         {

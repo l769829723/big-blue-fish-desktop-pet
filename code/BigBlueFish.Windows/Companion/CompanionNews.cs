@@ -11,7 +11,8 @@ namespace BigBlueFish.Windows;
 internal static class CompanionNews
 {
     internal const double Probability = .03;
-    internal static bool ShouldSelect(double roll) => roll >= 0 && roll < Probability;
+    internal static bool ShouldSelect(double roll, bool chatty = false) =>
+        roll >= 0 && roll < (chatty ? 1 : Probability);
 
     internal sealed record Item(string Title, string Summary, DateTimeOffset Published)
     {

@@ -608,7 +608,6 @@ internal sealed class CompanionBrain : IDisposable
                 {
                     "file" => "新闻文件读取失败，请检查路径和 RSS/JSON 格式。",
                     "api" => "新闻 API 读取失败，请检查地址和 RSS/JSON 响应。",
-                    "rss" => "RSS 新闻源读取失败，请检查地址和订阅内容。",
                     _ => "内置新闻源暂时不可用，本轮先跳过新闻。"
                 };
                 newsItems = newsItems.Where(i => DateTimeOffset.UtcNow - i.Published < TimeSpan.FromDays(2)).ToArray();
@@ -626,12 +625,12 @@ internal sealed class CompanionBrain : IDisposable
     internal Task<AgentBriefMaterial> AgentSpeechBrief(bool weatherRequest, bool usePublic, CancellationToken token)
         => AgentSpeechBrief(weatherRequest, usePublic, usePublic, token);
 
-    internal async Task<AgentBriefMaterial> AgentSpeechBrief(bool weatherRequest, bool useWeather, bool useNews, CancellationToken token)
+    internal async Task<AgentBriefMaterial> AgentSpeechBrief(bool weatherRequest, bool useWeather, bool useNews, CancellationToken token, bool chatty = false)
     {
         token.ThrowIfCancellationRequested();
         if (weatherRequest) { DiagnosticLog.Write(DiagnosticEvent.AgentMaterials, kind: "weather"); return new(AgentBrief(WeatherPersona), false); } // Event payload carries the weather data.
         lastNewsFailure = null;
-        var news = useNews && CompanionNews.ShouldSelect(newsRoll()) ? await NewsItem(token) : null;
+        var news = useNews && CompanionNews.ShouldSelect(newsRoll(), chatty) ? await NewsItem(token) : null;
         token.ThrowIfCancellationRequested();
         if (lastNewsFailure != null) return new(AgentBrief(NewsPersona, "请简短告诉主人：" + lastNewsFailure), false);
         if (news != null) { DiagnosticLog.Write(DiagnosticEvent.AgentMaterials, kind: "news"); lastNewsTitle = news.Title; return new(AgentBrief(NewsPersona, NewsRequest(news.Context)), false); }
@@ -644,7 +643,7 @@ internal sealed class CompanionBrain : IDisposable
     internal Task<string> Generate(bool usePublic, bool useForeground, IntPtr foregroundHandle = default, Action<string>? onPartial = null)
         => Generate(usePublic, usePublic, useForeground, foregroundHandle, onPartial);
 
-    internal async Task<string> Generate(bool useNews, bool useWeather, bool useForeground, IntPtr foregroundHandle = default, Action<string>? onPartial = null)
+    internal async Task<string> Generate(bool useNews, bool useWeather, bool useForeground, IntPtr foregroundHandle = default, Action<string>? onPartial = null, bool chatty = false)
     {
         if (disposed || Busy || !CanRunOnCurrentPower)
             return "";
@@ -665,7 +664,7 @@ internal sealed class CompanionBrain : IDisposable
         {
             if (UseExternalApi) _ = ExternalApiEndpoint();
             CompanionNews.Item? news = null;
-            if (useNews && CompanionNews.ShouldSelect(newsRoll()))
+            if (useNews && CompanionNews.ShouldSelect(newsRoll(), chatty))
                 news = await NewsItem(token);
             if (lastNewsFailure != null)
             {

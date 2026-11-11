@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -66,7 +67,7 @@ internal static class SpeechFlowVerification
             Directory.SetCurrentDirectory(Path.GetFullPath(root));
             File.Copy(Path.Combine(AppContext.BaseDirectory, "BigBlueFish.ico"), "BigBlueFish.ico", true);
             // Isolated settings; real runtime/model/resources are junctions supplied by the caller.
-            File.WriteAllText("preferences.json", "{\"ModelEnabled\":false,\"GpuEnabled\":true,\"StopModelOnBattery\":false,\"ForegroundEnabled\":true,\"PublicInfo\":false,\"Scale\":0.85,\"SpeechMinMinutes\":3,\"Left\":400,\"Top\":250}");
+            File.WriteAllText("preferences.json", "{\"ModelEnabled\":false,\"GpuEnabled\":true,\"StopModelOnBattery\":false,\"ForegroundEnabled\":true,\"PublicInfo\":false,\"NewsSource\":\"rss\",\"NewsRssUrl\":\"https://legacy.example/rss\",\"Scale\":0.85,\"SpeechMinMinutes\":3,\"Left\":400,\"Top\":250}");
             var random = new Random(20261014);
             foreach (var range in CompanionPreferences.SpeechRanges)
             {
@@ -91,6 +92,7 @@ internal static class SpeechFlowVerification
             var brain = (CompanionBrain)Field(window, "brain")!;
             Check(!prefs.PublicInfo && !prefs.WeatherEnabled && !prefs.NewsEnabled,
                 "disabled public-information master switch normalizes both child options on load");
+            Check(prefs.NewsSource == "builtin", "removed custom RSS settings migrate to built-in technology news");
             Invoke(window, "OpenCompanionSettings"); Pump(150);
             var settingsWindow = (Window)Field(window, "companionSettings")!;
             Children<System.Windows.Controls.Button>(settingsWindow).Single(b => (string?)b.Content == "日志控制台")
@@ -127,19 +129,39 @@ internal static class SpeechFlowVerification
             perception.IsChecked = true;
             perception.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); Pump(100);
             Check(prefs.ForegroundEnabled, "foreground perception can be re-enabled from settings");
-            var publicInfo = Children<CheckBox>(settingsWindow).Single(c => (string?)c.Content == "自动获取天气和科技新闻");
+            var publicInfo = Children<CheckBox>(settingsWindow).Single(c => (string?)c.Content == "自动获取天气和主题灵感");
             var weather = Children<CheckBox>(settingsWindow).Single(c => (string?)c.Content == "自动获取天气");
-            var news = Children<CheckBox>(settingsWindow).Single(c => (string?)c.Content == "自动获取科技新闻");
+            var news = Children<CheckBox>(settingsWindow).Single(c => (string?)c.Content == "主题灵感");
+            var chatty = Children<CheckBox>(settingsWindow).Single(c => (string?)c.Content == "随聊");
             publicInfo.IsChecked = true;
             publicInfo.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); Pump(100);
-            Check(prefs.PublicInfo && prefs.WeatherEnabled && prefs.NewsEnabled && weather.IsEnabled && news.IsEnabled,
+            Check(prefs.PublicInfo && prefs.WeatherEnabled && prefs.NewsEnabled && weather.IsEnabled && news.IsEnabled && chatty.IsEnabled,
                 "enabling public information synchronizes and enables both child options");
             publicInfo.IsChecked = false;
             publicInfo.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); Pump(100);
-            Check(!prefs.PublicInfo && !prefs.WeatherEnabled && !prefs.NewsEnabled && !weather.IsEnabled && !news.IsEnabled,
-                "disabling public information synchronizes and disables both child options");
+            Check(!prefs.PublicInfo && !prefs.WeatherEnabled && !prefs.NewsEnabled && !weather.IsEnabled && !news.IsEnabled && !chatty.IsEnabled,
+                "disabling public information synchronizes and disables child options");
             publicInfo.IsChecked = true;
             publicInfo.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); Pump(100);
+            chatty.IsChecked = true;
+            chatty.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); Pump(100);
+            Check(prefs.Chatty && CompanionNews.ShouldSelect(.99, prefs.Chatty), "随聊 enables inspiration on every automatic speech");
+            Check(JsonDocument.Parse(File.ReadAllText("preferences.json")).RootElement.GetProperty("Chatty").GetBoolean(),
+                "随聊 preference persists to disk");
+            chatty.IsChecked = false;
+            chatty.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); Pump(100);
+            Check(!prefs.Chatty && !CompanionNews.ShouldSelect(.99, prefs.Chatty), "turning 随聊 off restores the 3% inspiration chance");
+            Check(!JsonDocument.Parse(File.ReadAllText("preferences.json")).RootElement.GetProperty("Chatty").GetBoolean(),
+                "disabled 随聊 preference persists to disk");
+            var source = Children<ComboBox>(settingsWindow).Single(c => c.Items.Count == 3 && c.Items[0]?.ToString() == "科技新闻");
+            Check(source.Items.Cast<string>().SequenceEqual(new[] { "科技新闻", "从文件读取", "从 API 读取" }),
+                "theme inspiration sources keep built-in news, file, and API while removing custom RSS");
+            source.SelectedIndex = 1; Pump(100);
+            Check(prefs.NewsSource == "file", "file source remains selectable");
+            source.SelectedIndex = 2; Pump(100);
+            Check(prefs.NewsSource == "api", "API source remains selectable");
+            source.SelectedIndex = 0; Pump(100);
+            Check(prefs.NewsSource == "builtin", "built-in technology news remains selectable");
             var frequency = Children<ComboBox>(settingsWindow).Single(c => c.Items.Count == 8 && c.Items[0].ToString()!.StartsWith("说话间隔"));
             Check(frequency.Items.Cast<string>().SequenceEqual(new[] {
                 "说话间隔：10–30 秒", "说话间隔：30–60 秒", "说话间隔：2–3 分钟", "说话间隔：3–5 分钟",

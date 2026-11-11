@@ -20,7 +20,8 @@
 | --- | --- | --- |
 | ModelEnabled | bool | 启用内置模型 |
 | GpuEnabled | bool | 本地推理启用GPU |
-| PublicInfo | bool | 天气与新闻总开关；修改时同步关闭或开启天气、新闻子选项 |
+| PublicInfo | bool | 天气与主题灵感总开关；修改时同步关闭或开启天气、主题灵感子选项 |
+| Chatty | bool | 随聊；主题灵感开启时，每轮自动说话都尝试选取；关闭时每轮概率为3% |
 | ForegroundEnabled | bool | 内置模型读屏及 Agent 日常关心附图；不控制显式截图工具 |
 | StopModelOnBattery | bool | 离电暂停并卸载内置模型 |
 | HideOnFullscreen | bool | 外部全屏时自动隐藏 |

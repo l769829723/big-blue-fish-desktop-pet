@@ -209,38 +209,41 @@ public partial class MainWindow
         p = pages[1];
         CheckBox? weatherEnabled = null, newsEnabled = null;
         int publicInfoIndex = p.Children.Count;
-        newsEnabled = Toggle("自动获取科技新闻", preferences.NewsEnabled, v =>
+        newsEnabled = Toggle("主题灵感", preferences.NewsEnabled, v =>
         {
             preferences.NewsEnabled = v;
             if (!v) InvalidateSpeechRequests();
         });
         newsEnabled.IsEnabled = preferences.PublicInfo;
-        p.Children.Add(new TextBlock { Text = "科技新闻来源", Margin = new Thickness(0, 10, 0, 4) });
-        var newsSource = new ComboBox { ItemsSource = new[] { "内置 IT之家 RSS", "自定义 RSS 地址", "从文件读取", "从 API 读取" }, SelectedIndex = preferences.NewsSource switch { "rss" => 1, "file" => 2, "api" => 3, _ => 0 }, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var chatty = Toggle("随聊", preferences.Chatty, v => { preferences.Chatty = v; InvalidateSpeechRequests(); });
+        p.Children.Add(new TextBlock { Text = "主题灵感来源", Margin = new Thickness(0, 10, 0, 4) });
+        var newsSource = new ComboBox { ItemsSource = new[] { "科技新闻", "从文件读取", "从 API 读取" }, SelectedIndex = preferences.NewsSource switch { "file" => 1, "api" => 2, _ => 0 }, HorizontalAlignment = HorizontalAlignment.Stretch };
         p.Children.Add(newsSource);
         var newsLocationLabel = new TextBlock { Margin = new Thickness(0, 8, 0, 4) };
         p.Children.Add(newsLocationLabel);
-        string CurrentNewsLocation() => preferences.NewsSource switch { "file" => preferences.NewsFilePath, "api" => preferences.NewsApiUrl, "rss" => preferences.NewsRssUrl, _ => "" };
+        string CurrentNewsLocation() => preferences.NewsSource switch { "file" => preferences.NewsFilePath, "api" => preferences.NewsApiUrl, _ => "" };
         void StoreNewsLocation(string value)
         {
             switch (preferences.NewsSource)
             {
                 case "file": preferences.NewsFilePath = value; break;
                 case "api": preferences.NewsApiUrl = value; break;
-                case "rss": preferences.NewsRssUrl = value; break;
             }
         }
         var newsLocation = new TextBox { Text = CurrentNewsLocation(), MinWidth = 300 };
         p.Children.Add(newsLocation);
         void RefreshNewsLocation()
         {
-            newsLocationLabel.Text = preferences.NewsSource switch { "file" => "新闻文件路径（RSS/Atom 或 JSON）", "api" => "新闻 API 地址（RSS/Atom 或 JSON）", "rss" => "RSS/Atom 地址", _ => "内置 IT之家 RSS" };
+            newsLocationLabel.Text = preferences.NewsSource switch { "file" => "新闻文件路径（RSS/Atom 或 JSON）", "api" => "新闻 API 地址（RSS/Atom 或 JSON）", _ => "使用内置科技新闻" };
             newsLocation.Text = CurrentNewsLocation();
-            newsLocation.IsEnabled = preferences.PublicInfo && preferences.NewsEnabled && preferences.NewsSource != "builtin";
+            bool customLocation = preferences.NewsSource is "file" or "api";
+            newsLocation.Visibility = customLocation ? Visibility.Visible : Visibility.Collapsed;
+            newsLocation.IsEnabled = preferences.PublicInfo && preferences.NewsEnabled && customLocation;
             newsSource.IsEnabled = preferences.PublicInfo && preferences.NewsEnabled;
+            chatty.IsEnabled = preferences.PublicInfo && preferences.NewsEnabled;
             if (weatherEnabled != null) weatherEnabled.IsEnabled = preferences.PublicInfo;
         }
-        var publicInfoEnabled = Toggle("自动获取天气和科技新闻", preferences.PublicInfo, v =>
+        var publicInfoEnabled = Toggle("自动获取天气和主题灵感", preferences.PublicInfo, v =>
         {
             preferences.SetPublicInfo(v);
             InvalidateSpeechRequests();
@@ -251,7 +254,7 @@ public partial class MainWindow
         p.Children.Remove(publicInfoEnabled);
         p.Children.Insert(publicInfoIndex, publicInfoEnabled);
         RefreshNewsLocation();
-        newsSource.SelectionChanged += (_, _) => { StoreNewsLocation(newsLocation.Text.Trim()); preferences.NewsSource = newsSource.SelectedIndex switch { 1 => "rss", 2 => "file", 3 => "api", _ => "builtin" }; brain.RefreshNews(); RefreshNewsLocation(); SaveCompanion(); };
+        newsSource.SelectionChanged += (_, _) => { StoreNewsLocation(newsLocation.Text.Trim()); preferences.NewsSource = newsSource.SelectedIndex switch { 1 => "file", 2 => "api", _ => "builtin" }; brain.RefreshNews(); RefreshNewsLocation(); SaveCompanion(); };
         newsLocation.LostKeyboardFocus += (_, _) => { StoreNewsLocation(newsLocation.Text.Trim()); brain.RefreshNews(); SaveCompanion(); };
         publicInfoEnabled.Click += (_, _) => RefreshNewsLocation();
         newsEnabled.Click += (_, _) => RefreshNewsLocation();

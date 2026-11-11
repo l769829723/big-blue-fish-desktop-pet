@@ -136,14 +136,27 @@ internal sealed partial class LinuxPetWindow
             CheckBox? weatherEnabled = null, newsEnabled = null;
             bool synchronizingPublicInfo = false;
             int publicInfoIndex = body.Children.Count;
-            newsEnabled = Toggle("自动获取科技新闻", Preferences.NewsEnabled, value => { Preferences.NewsEnabled = value; if (!synchronizingPublicInfo) ApplySettings(); });
+            newsEnabled = Toggle("主题灵感", Preferences.NewsEnabled, value => { Preferences.NewsEnabled = value; if (!synchronizingPublicInfo) ApplySettings(); });
             newsEnabled.IsEnabled = Preferences.PublicInfo;
-            var source = Select("科技新闻来源", new[] { "内置 IT之家 RSS", "自定义 RSS 地址", "从文件读取", "从 API 读取" },
-                Preferences.NewsSource switch { "rss" => 1, "file" => 2, "api" => 3, _ => 0 }, value => { Preferences.NewsSource = value switch { 1 => "rss", 2 => "file", 3 => "api", _ => "builtin" }; brain.RefreshNews(); });
-            body.Children.Add(new TextBlock { Text = "新闻源地址或文件路径（RSS/Atom 或 JSON）", Margin = new Thickness(0, 4, 0, 2) });
-            var newsLocation = new TextBox { Text = Preferences.ActiveNewsLocation };
-            void RefreshNewsLocation() { newsLocation.Text = Preferences.ActiveNewsLocation; newsLocation.IsEnabled = Preferences.PublicInfo && Preferences.NewsEnabled && Preferences.NewsSource != "builtin"; source.IsEnabled = Preferences.PublicInfo && Preferences.NewsEnabled; if (weatherEnabled != null) weatherEnabled.IsEnabled = Preferences.PublicInfo; }
-            var publicInfoToggle = Toggle("自动获取天气和科技新闻", Preferences.PublicInfo, value => {
+            var chatty = Toggle("随聊", Preferences.Chatty, value => { Preferences.Chatty = value; ApplySettings(); });
+            var source = Select("主题灵感来源", new[] { "科技新闻", "从文件读取", "从 API 读取" },
+                Preferences.NewsSource switch { "file" => 1, "api" => 2, _ => 0 }, value => { Preferences.NewsSource = value switch { 1 => "file", 2 => "api", _ => "builtin" }; brain.RefreshNews(); });
+            var newsLocationLabel = new TextBlock { Margin = new Thickness(0, 4, 0, 2) };
+            body.Children.Add(newsLocationLabel);
+            string CurrentNewsLocation() => Preferences.NewsSource switch { "file" => Preferences.NewsFilePath, "api" => Preferences.NewsApiUrl, _ => "" };
+            var newsLocation = new TextBox { Text = CurrentNewsLocation() };
+            void RefreshNewsLocation() {
+                newsLocationLabel.Text = Preferences.NewsSource switch { "file" => "新闻文件路径（RSS/Atom 或 JSON）", "api" => "新闻 API 地址（RSS/Atom 或 JSON）", _ => "使用内置科技新闻" };
+                bool customLocation = Preferences.NewsSource is "file" or "api";
+                newsLocationLabel.IsVisible = customLocation;
+                newsLocation.Text = CurrentNewsLocation();
+                newsLocation.IsVisible = customLocation;
+                newsLocation.IsEnabled = Preferences.PublicInfo && Preferences.NewsEnabled && customLocation;
+                source.IsEnabled = Preferences.PublicInfo && Preferences.NewsEnabled;
+                chatty.IsEnabled = Preferences.PublicInfo && Preferences.NewsEnabled;
+                if (weatherEnabled != null) weatherEnabled.IsEnabled = Preferences.PublicInfo;
+            }
+            var publicInfoToggle = Toggle("自动获取天气和主题灵感", Preferences.PublicInfo, value => {
                 Preferences.SetPublicInfo(value);
                 synchronizingPublicInfo = true;
                 try {
@@ -158,7 +171,7 @@ internal sealed partial class LinuxPetWindow
             source.SelectionChanged += (_, _) => RefreshNewsLocation();
             publicInfoToggle.IsCheckedChanged += (_, _) => RefreshNewsLocation();
             newsEnabled.IsCheckedChanged += (_, _) => RefreshNewsLocation();
-            newsLocation.LostFocus += (_, _) => { var value = newsLocation.Text?.Trim() ?? ""; switch (Preferences.NewsSource) { case "file": Preferences.NewsFilePath = value; break; case "api": Preferences.NewsApiUrl = value; break; case "rss": Preferences.NewsRssUrl = value; break; } brain.RefreshNews(); Save(); };
+            newsLocation.LostFocus += (_, _) => { var value = newsLocation.Text?.Trim() ?? ""; switch (Preferences.NewsSource) { case "file": Preferences.NewsFilePath = value; break; case "api": Preferences.NewsApiUrl = value; break; } brain.RefreshNews(); Save(); };
             body.Children.Add(newsLocation);
             RefreshNewsLocation();
             Toggle("感知当前前台应用", Preferences.ForegroundEnabled, value => { Preferences.ForegroundEnabled = value; ApplySettings(); });

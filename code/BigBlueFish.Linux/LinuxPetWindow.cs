@@ -281,7 +281,7 @@ internal sealed partial class LinuxPetWindow : Window
             nextSpeech = DateTime.UtcNow.Add(Preferences.NextSpeechDelay(random));
             var text = weather ? await brain.GenerateWeather(p => Partial(p, version, agentTriggered)) : await brain.Generate(
                 Preferences.PublicInfo && Preferences.NewsEnabled, Preferences.PublicInfo && Preferences.WeatherEnabled,
-                Preferences.ForegroundEnabled, lastForeground, p => Partial(p, version, agentTriggered));
+                Preferences.ForegroundEnabled, lastForeground, p => Partial(p, version, agentTriggered), chatty: Preferences.Chatty);
             if (version != speechVersion || Puppet && !agentTriggered || hidden || fullscreenHidden || closed || !Preferences.ModelEnabled || !brain.CanRunOnCurrentPower) return;
             if (text.Length > 0) { if (streamed) { fullText = text; bubbleText.Text = text; ResetDwell(); } else ShowText(text, false, fromModel: true); }
             else if (streamed && !externalSpeech) bubbleWindow.Hide();
@@ -324,6 +324,5 @@ internal sealed partial class LinuxPetWindow : Window
     }
     void CloseImmediately() { exitReady = true; Close(); }
 }
-
 
 

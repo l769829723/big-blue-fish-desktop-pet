@@ -50,7 +50,7 @@ public partial class MainWindow
     {
         bool useWeather = preferences.PublicInfo && preferences.WeatherEnabled;
         bool useNews = preferences.PublicInfo && preferences.NewsEnabled;
-        var material = await brain.AgentSpeechBrief(kind == "weather_request", useWeather, useNews, token);
+        var material = await brain.AgentSpeechBrief(kind == "weather_request", useWeather, useNews, token, preferences.Chatty);
         if (!material.ObserveScreen) return new(material.Text);
         if (!preferences.ForegroundEnabled) return new(material.Text + "\n本轮未启用读取前台内容，按已有情境自然关心主人。");
         var handle = CompanionNative.ResolveSpeechForeground(CompanionNative.GetForegroundWindow(), lastExternalForeground);
@@ -266,7 +266,7 @@ public partial class MainWindow
         if (!preferences.McpEnabled) throw new OperationCanceledException();
         bool oldGpu = preferences.GpuEnabled, oldModel = preferences.ModelEnabled;
         string oldRegion = preferences.WeatherRegionCode;
-        bool oldPublicInfo = preferences.PublicInfo, oldWeather = preferences.WeatherEnabled, oldNews = preferences.NewsEnabled, oldForeground = preferences.ForegroundEnabled;
+        bool oldPublicInfo = preferences.PublicInfo, oldWeather = preferences.WeatherEnabled, oldNews = preferences.NewsEnabled, oldChatty = preferences.Chatty, oldForeground = preferences.ForegroundEnabled;
         foreach (var item in values)
         {
             if (item.Key == "StartupEnabled") SetCompanionStartup((bool)item.Value!);
@@ -278,7 +278,7 @@ public partial class MainWindow
         else if (values.TryGetValue("SpeechMinMinutes", out var speechMinutes)) preferences.SetSpeechInterval(speechMinutes switch { 2 => "2m", 3 => "3m", 5 => "5m", 15 => "15m", 20 => "20m", _ => "10m" });
         if (values.TryGetValue("PuppetMode", out puppet)) SetPuppetMode((bool)puppet!);
         bool contextChanged = oldPublicInfo != preferences.PublicInfo || oldWeather != preferences.WeatherEnabled
-            || oldNews != preferences.NewsEnabled || oldForeground != preferences.ForegroundEnabled;
+            || oldNews != preferences.NewsEnabled || oldChatty != preferences.Chatty || oldForeground != preferences.ForegroundEnabled;
         if (oldGpu != preferences.GpuEnabled || oldModel && !preferences.ModelEnabled) InvalidateSpeechRequests(true);
         else if (contextChanged) InvalidateSpeechRequests();
         brain.UseGpu = preferences.GpuEnabled; brain.WeatherRegionCode = preferences.WeatherRegionCode;

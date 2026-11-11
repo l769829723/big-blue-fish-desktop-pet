@@ -25,9 +25,15 @@ internal static class NewsVerification
     {
         Check(CompanionNews.ShouldSelect(0) && CompanionNews.ShouldSelect(.029999)
             && !CompanionNews.ShouldSelect(.03) && !CompanionNews.ShouldSelect(.99), "three-percent selection boundaries");
+        Check(CompanionNews.ShouldSelect(0, true) && CompanionNews.ShouldSelect(.03, true)
+            && CompanionNews.ShouldSelect(.99, true) && CompanionNews.ShouldSelect(.999999, true)
+            && !CompanionNews.ShouldSelect(1, true) && !CompanionNews.ShouldSelect(-.01, true),
+            "chatty mode selects inspiration across the full valid random range");
         Check(CompanionNews.ShouldSelect(0) && CompanionNews.ShouldSelect(0), "consecutive opportunities are independent without calendar or speech-count gates");
         int selected = Enumerable.Range(0, 1_000_000).Count(i => CompanionNews.ShouldSelect(i / 1_000_000d));
         Check(selected == 30_000, "exactly 3 percent across stratified random inputs");
+        selected = Enumerable.Range(0, 1_000_000).Count(i => CompanionNews.ShouldSelect(i / 1_000_000d, true));
+        Check(selected == 1_000_000, "chatty mode selects every valid stratified opportunity");
         var random = new Random(20261014);
         selected = Enumerable.Range(0, 1_000_000).Count(_ => CompanionNews.ShouldSelect(random.NextDouble()));
         Check(Math.Abs(selected - 30_000) < 1000, "seeded million-opportunity Monte Carlo agrees with 3 percent");
@@ -41,7 +47,7 @@ internal static class NewsVerification
             + item("", now.ToString("r")) + "</channel></rss>";
         var items = CompanionNews.ReadFeed(feed, now);
         Check(items.Length == 2 && items.Any(i => i.Title == "短标题"), "headlines no longer require length, keywords or certainty filters; freshness and deduplication retained");
-        Check(items[0].Summary == "原文 传闻 & 摘要" && items[0].Context.Contains("IT之家"), "RSS summary is readable plain text with source and date");
+        Check(items[0].Summary == "原文 传闻 & 摘要" && items[0].Context.Contains("科技新闻"), "news summary is readable plain text with source and date");
         var messages = CompanionBrain.BuildMessages(CompanionBrain.NewsPersona, CompanionBrain.NewsRequest(items[0].Context));
         Check(messages.Length == 2 && messages[0].role == "system" && messages[1].role == "user", "news uses standard system and user roles");
         Check(!((string)messages[0].content).Contains("语气演示") && !((string)messages[0].content).Contains("新衣服")

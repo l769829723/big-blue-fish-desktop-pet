@@ -14,6 +14,7 @@ internal sealed class CompanionPreferences
     public bool PublicInfo { get; set; } = true;
     public bool WeatherEnabled { get; set; } = true;
     public bool NewsEnabled { get; set; } = true;
+    public bool Chatty { get; set; }
     internal void SetPublicInfo(bool enabled)
     {
         PublicInfo = enabled;
@@ -25,12 +26,11 @@ internal sealed class CompanionPreferences
         if (!PublicInfo) WeatherEnabled = NewsEnabled = false;
     }
     public string NewsSource { get; set; } = "builtin";
-    public string NewsRssUrl { get; set; } = "https://www.ithome.com/rss/";
     public string NewsFilePath { get; set; } = "";
     public string NewsApiUrl { get; set; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
     public string NewsLocation { get; set; } = "";
-    [JsonIgnore] public string ActiveNewsLocation => NewsSource switch { "file" => NewsFilePath, "api" => NewsApiUrl, "rss" => NewsRssUrl, _ => "https://www.ithome.com/rss/" };
+    [JsonIgnore] public string ActiveNewsLocation => NewsSource switch { "file" => NewsFilePath, "api" => NewsApiUrl, _ => "https://www.ithome.com/rss/" };
     public bool ForegroundEnabled { get; set; } = true;
     public bool StopModelOnBattery { get; set; } = true;
     public bool HideOnFullscreen { get; set; } = true;
@@ -140,8 +140,7 @@ internal sealed class CompanionPreferences
                     s.NormalizePublicInfo();
                     s.ModelBackend = s.ModelBackend == "api" ? "api" : "builtin";
                     if (s.ModelBackend == "api") s.GpuEnabled = s.StopModelOnBattery = false;
-                    s.NewsSource = s.NewsSource is "file" or "api" or "rss" ? s.NewsSource : "builtin";
-                    if (string.IsNullOrWhiteSpace(s.NewsRssUrl)) s.NewsRssUrl = s.NewsSource == "rss" && !string.IsNullOrWhiteSpace(s.NewsLocation) ? s.NewsLocation : "https://www.ithome.com/rss/";
+                    s.NewsSource = s.NewsSource is "file" or "api" ? s.NewsSource : "builtin";
                     if (string.IsNullOrWhiteSpace(s.NewsFilePath) && s.NewsSource == "file") s.NewsFilePath = s.NewsLocation;
                     if (string.IsNullOrWhiteSpace(s.NewsApiUrl) && s.NewsSource == "api") s.NewsApiUrl = s.NewsLocation;
 #if COMPANION_SAFE
