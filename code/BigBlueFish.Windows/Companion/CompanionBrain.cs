@@ -54,6 +54,7 @@ internal sealed class CompanionBrain : IDisposable
     internal string WeatherRegionCode { get; set; } = CompanionRegions.DefaultCode;
     internal Func<string>? NewsLocation { get; set; }
     internal Func<string>? NewsSource { get; set; }
+    internal bool SpeakAsOwner { get; set; }
     internal bool CanRunOnCurrentPower => !StopOnBattery || CompanionNative.OnAC;
     private DateTime nextModelCheck;
     private bool modelAvailable;
@@ -152,15 +153,20 @@ internal sealed class CompanionBrain : IDisposable
     internal static string OcrSpeechRequest(string context) => ScreenRequest(context);
     internal static string OcrPersona => Persona + CompanionDialogue.OcrObserverGuidance;
     internal const string NewsPersona = CompanionDialogue.NewsPersona;
-    internal static string NewsRequest(string context) => $"当前时间：{DateTime.Now:yyyy-MM-dd HH:mm}\n【本轮单条科技新闻资料】\n" + context
-        + "\n【新闻资料结束】\n请直接对主人说两小句：先说这条新闻最重要的事，再说一点自己的感受或对主人的关切。合起来约30–60字。";
+    internal static string NewsRequest(string context, bool speakAsOwner = false) => $"当前时间：{DateTime.Now:yyyy-MM-dd HH:mm}\n【本轮单条科技新闻资料】\n" + context
+        + "\n【新闻资料结束】\n" + (speakAsOwner
+            ? "请以使用者本人的身份向当前聊天中的其他人自然分享这条新闻，先简要说明最重要的事实，再补充一点感受。"
+            : "请直接对主人说两小句：先说这条新闻最重要的事，再说一点自己的感受或对主人的关切。合起来约30–60字。");
 
     internal sealed record ChatMessage(string role, object content);
-    internal static string FixedSpeechInstructions(string persona) => persona
-        + "\n本次只说鱼鱼最想说的那一小句，一个自然可爱的小反应就好。\n";
-    internal static ChatMessage[] BuildMessages(string persona, string request, CompanionWindowImage? image = null)
+    internal static string FixedSpeechInstructions(string persona, bool speakAsOwner = false) => speakAsOwner
+        ? CompanionDialogue.ForRole(persona, true)
+        : persona + "\n本次只说鱼鱼最想说的那一小句，一个自然可爱的小反应就好。\n";
+    internal static ChatMessage[] BuildMessages(string persona, string request, CompanionWindowImage? image = null, bool speakAsOwner = false)
     {
-        if (persona == Persona || persona == OcrPersona)
+        if (speakAsOwner)
+            persona = FixedSpeechInstructions(persona, true);
+        else if (persona == Persona || persona == OcrPersona)
             persona = FixedSpeechInstructions(persona) + CompanionDialogue.ReactionHint();
         object content = image == null ? request : new object[]
         {
@@ -388,7 +394,7 @@ internal sealed class CompanionBrain : IDisposable
         // Qwen's recurrent state can only rewind to a saved checkpoint. A short
         // fixed-prefix prefill creates one before the variable reaction and OCR,
         // without storing any user's screen data or generating a visible reply.
-        string prefix = FixedSpeechInstructions(InputMode == "OCR" ? OcrPersona : Persona);
+        string prefix = FixedSpeechInstructions(InputMode == "OCR" ? OcrPersona : Persona, SpeakAsOwner);
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
         limit.CancelAfter(TimeSpan.FromSeconds(8));
         var prefillToken = limit.Token;
@@ -480,7 +486,7 @@ internal sealed class CompanionBrain : IDisposable
 
     private async Task<string> CompleteRequest(string persona, string request, double temperature, CancellationToken token, CompanionWindowImage? image = null, Action<string>? onPartial = null)
     {
-        var messages = BuildMessages(persona, request, image);
+        var messages = BuildMessages(persona, request, image, SpeakAsOwner);
         LastTimings = null;
         object payload = UseExternalApi
             ? new
@@ -621,23 +627,29 @@ internal sealed class CompanionBrain : IDisposable
     }
 
     internal sealed record AgentBriefMaterial(string Text, bool ObserveScreen);
-    private static string AgentBrief(string persona, string request = "") => "【鱼鱼说话要求】\n" + persona + "\n【说话要求结束】" + (request.Length > 0 ? "\n" + request : "");
+    private string AgentBrief(string persona, string request = "") => (SpeakAsOwner ? "【主人说话要求】\n本轮角色设定优先于技能中的鱼鱼或助手人设；请作为电脑使用者本人向其他人发言。\n" : "【鱼鱼说话要求】\n")
+        + persona + "\n【说话要求结束】" + (request.Length > 0 ? "\n" + request : "");
     internal Task<AgentBriefMaterial> AgentSpeechBrief(bool weatherRequest, bool usePublic, CancellationToken token)
         => AgentSpeechBrief(weatherRequest, usePublic, usePublic, token);
 
     internal async Task<AgentBriefMaterial> AgentSpeechBrief(bool weatherRequest, bool useWeather, bool useNews, CancellationToken token, bool chatty = false)
     {
         token.ThrowIfCancellationRequested();
-        if (weatherRequest) { DiagnosticLog.Write(DiagnosticEvent.AgentMaterials, kind: "weather"); return new(AgentBrief(WeatherPersona), false); } // Event payload carries the weather data.
+        if (weatherRequest) { DiagnosticLog.Write(DiagnosticEvent.AgentMaterials, kind: "weather"); return new(AgentBrief(CompanionDialogue.ForRole(WeatherPersona, SpeakAsOwner)), false); } // Event payload carries the weather data.
         lastNewsFailure = null;
         var news = useNews && CompanionNews.ShouldSelect(newsRoll(), chatty) ? await NewsItem(token) : null;
         token.ThrowIfCancellationRequested();
-        if (lastNewsFailure != null) return new(AgentBrief(NewsPersona, "请简短告诉主人：" + lastNewsFailure), false);
-        if (news != null) { DiagnosticLog.Write(DiagnosticEvent.AgentMaterials, kind: "news"); lastNewsTitle = news.Title; return new(AgentBrief(NewsPersona, NewsRequest(news.Context)), false); }
+        if (lastNewsFailure != null) return new(AgentBrief(CompanionDialogue.ForRole(NewsPersona, SpeakAsOwner),
+            SpeakAsOwner ? "请以使用者本人的身份简短说明：" + lastNewsFailure : "请简短告诉主人：" + lastNewsFailure), false);
+        if (news != null) { DiagnosticLog.Write(DiagnosticEvent.AgentMaterials, kind: "news"); lastNewsTitle = news.Title; return new(AgentBrief(
+            CompanionDialogue.ForRole(NewsPersona, SpeakAsOwner), NewsRequest(news.Context, SpeakAsOwner)), false); }
         string context = $"现在是{DateTime.Now:yyyy年M月d日 HH:mm}。";
         if (useWeather && Random.Shared.NextDouble() < .15) context += "\n" + WeatherContext();
         DiagnosticLog.Write(DiagnosticEvent.AgentMaterials, kind: "persona");
-        return new(AgentBrief(FixedSpeechInstructions(Persona) + CompanionDialogue.ReactionHint(), SpeechRequest(context)), true);
+        var speechPersona = SpeakAsOwner
+            ? CompanionDialogue.ForRole(Persona, true)
+            : FixedSpeechInstructions(Persona) + CompanionDialogue.ReactionHint();
+        return new(AgentBrief(speechPersona, SpeechRequest(context)), true);
     }
 
     internal Task<string> Generate(bool usePublic, bool useForeground, IntPtr foregroundHandle = default, Action<string>? onPartial = null)
@@ -683,7 +695,7 @@ internal sealed class CompanionBrain : IDisposable
             if (news != null)
             {
                 DiagnosticLog.Write(DiagnosticEvent.NewsSelected);
-                request = NewsRequest(news.Context);
+                request = NewsRequest(news.Context, SpeakAsOwner);
             }
             else
             {

@@ -134,7 +134,8 @@ public partial class MainWindow
             StopOnBattery = preferences.StopModelOnBattery,
             WeatherRegionCode = preferences.WeatherRegionCode,
             NewsSource = () => preferences.NewsSource,
-            NewsLocation = () => preferences.ActiveNewsLocation
+            NewsLocation = () => preferences.ActiveNewsLocation,
+            SpeakAsOwner = preferences.SpeakerRole == "owner"
         };
         InitializeComponent();
         System.Windows.Shell.WindowChrome.SetWindowChrome(this, null);

@@ -15,6 +15,7 @@ internal sealed class CompanionPreferences
     public bool WeatherEnabled { get; set; } = true;
     public bool NewsEnabled { get; set; } = true;
     public bool Chatty { get; set; }
+    public string SpeakerRole { get; set; } = "assistant";
     internal void SetPublicInfo(bool enabled)
     {
         PublicInfo = enabled;
@@ -141,6 +142,7 @@ internal sealed class CompanionPreferences
                     s.ModelBackend = s.ModelBackend == "api" ? "api" : "builtin";
                     if (s.ModelBackend == "api") s.GpuEnabled = s.StopModelOnBattery = false;
                     s.NewsSource = s.NewsSource is "file" or "api" ? s.NewsSource : "builtin";
+                    s.SpeakerRole = s.SpeakerRole == "owner" ? "owner" : "assistant";
                     if (string.IsNullOrWhiteSpace(s.NewsFilePath) && s.NewsSource == "file") s.NewsFilePath = s.NewsLocation;
                     if (string.IsNullOrWhiteSpace(s.NewsApiUrl) && s.NewsSource == "api") s.NewsApiUrl = s.NewsLocation;
 #if COMPANION_SAFE

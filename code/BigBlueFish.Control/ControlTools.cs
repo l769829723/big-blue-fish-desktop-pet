@@ -21,7 +21,7 @@ public static class ControlTools
         new { type = "text", text = JsonSerializer.Serialize(metadata) },
         new { type = "image", mimeType = dataUrl[5..dataUrl.IndexOf(';')], data = dataUrl[(dataUrl.IndexOf(',') + 1)..] } } };
     public static readonly string[] SettingNames = ["ModelEnabled", "GpuEnabled", "PublicInfo", "ForegroundEnabled", "StopModelOnBattery",
-        "HideOnFullscreen", "CheckUpdatesOnStartup", "WeatherRegionCode", "Scale", "BubbleScale", "SpeechMinMinutes", "SpeechInterval", "Chatty",
+        "HideOnFullscreen", "CheckUpdatesOnStartup", "WeatherRegionCode", "Scale", "BubbleScale", "SpeechMinMinutes", "SpeechInterval", "Chatty", "SpeakerRole",
         "BubbleDurationIndex", "AnimationIntervalSeconds", "BreakfastHour", "LunchHour", "DinnerHour", "Left", "Top", "LastBrushDate", "StartupEnabled", "PuppetMode", "AgentDailySpeech", "AgentRespondToClick", "AgentRespondToDrag"];
     private const string SettingsInput = """
         {"settings":{"type":"object","additionalProperties":false,"description":"按需提供字段；省略的字段保留。字段名区分大小写。AgentEnabled 只读。成功后读取实际值；位置可能因工作区限制调整。","properties":{
@@ -29,6 +29,7 @@ public static class ControlTools
           "GpuEnabled":{"type":"boolean","description":"本地推理使用 GPU；切换会停止当前模型任务。"},
           "PublicInfo":{"type":"boolean","description":"天气和主题灵感总开关；修改时会同步 WeatherEnabled 和 NewsEnabled。"},
           "Chatty":{"type":"boolean","description":"启用随聊后，主题灵感每轮自动说话都会尝试选取；关闭时每轮概率为3%。"},
+          "SpeakerRole":{"type":"string","enum":["assistant","owner"],"description":"LLM/Agent说话身份；assistant为默认鱼鱼助手，owner以电脑使用者本人身份向当前聊天中的其他人发言。"},
           "ForegroundEnabled":{"type":"boolean","description":"内置模型是否读屏；不是 MCP 截图的权限开关。"},
           "StopModelOnBattery":{"type":"boolean","description":"离电时暂停并卸载内置模型；不限制外部文字。"},
           "HideOnFullscreen":{"type":"boolean","description":"外部全屏时隐藏桌宠；不限制 MCP 截图。"},

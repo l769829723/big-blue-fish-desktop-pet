@@ -209,6 +209,22 @@ public partial class MainWindow
         p = pages[1];
         CheckBox? weatherEnabled = null, newsEnabled = null;
         int publicInfoIndex = p.Children.Count;
+        p.Children.Add(new TextBlock { Text = "角色定位", Margin = new Thickness(0, 0, 0, 4) });
+        var speakerRole = new ComboBox
+        {
+            ItemsSource = new[] { "助手（默认）", "主人" },
+            SelectedIndex = preferences.SpeakerRole == "owner" ? 1 : 0,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        p.Children.Add(speakerRole);
+        speakerRole.SelectionChanged += (_, _) =>
+        {
+            if (speakerRole.SelectedIndex < 0) return;
+            preferences.SpeakerRole = speakerRole.SelectedIndex == 1 ? "owner" : "assistant";
+            brain.SpeakAsOwner = preferences.SpeakerRole == "owner";
+            InvalidateSpeechRequests();
+            SaveCompanion();
+        };
         newsEnabled = Toggle("主题灵感", preferences.NewsEnabled, v =>
         {
             preferences.NewsEnabled = v;

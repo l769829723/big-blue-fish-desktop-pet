@@ -158,6 +158,7 @@ internal sealed partial class LinuxPetWindow
                 "BreakfastHour" or "LunchHour" or "DinnerHour" => Range(0, 23), "BubbleDurationIndex" => Range(0, 7),
                 "SpeechMinMinutes" => item.Value is int minutes && CompanionPreferences.SpeechRanges.Any(r => r.Min == minutes),
                 "SpeechInterval" => item.Value is string interval && CompanionPreferences.SpeechIntervals.Any(r => r.Id == interval),
+                "SpeakerRole" => item.Value is string role && role is "assistant" or "owner",
                 "WeatherRegionCode" => item.Value is string region && CompanionRegions.District(region).Code == region,
                 "LastBrushDate" => item.Value == null || item.Value is string date && DateTime.TryParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _),
                 "Left" or "Top" => item.Value == null || Range(-1000000, 1000000), _ => item.Value is bool };

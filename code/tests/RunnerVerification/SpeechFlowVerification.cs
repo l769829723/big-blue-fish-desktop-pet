@@ -93,6 +93,8 @@ internal static class SpeechFlowVerification
             Check(!prefs.PublicInfo && !prefs.WeatherEnabled && !prefs.NewsEnabled,
                 "disabled public-information master switch normalizes both child options on load");
             Check(prefs.NewsSource == "builtin", "removed custom RSS settings migrate to built-in technology news");
+            Check(prefs.SpeakerRole == "assistant" && !brain.SpeakAsOwner,
+                "missing speaker role defaults to the assistant persona");
             Invoke(window, "OpenCompanionSettings"); Pump(150);
             var settingsWindow = (Window)Field(window, "companionSettings")!;
             Children<System.Windows.Controls.Button>(settingsWindow).Single(b => (string?)b.Content == "日志控制台")
@@ -122,6 +124,16 @@ internal static class SpeechFlowVerification
             }
             Children<System.Windows.Controls.Button>(settingsWindow).Single(b => (string?)b.Content == "说话与天气")
                 .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); Pump(100);
+            var role = Children<ComboBox>(settingsWindow).Single(c => c.Items.Count == 2 && c.Items[0]?.ToString() == "助手（默认）");
+            Check(role.Items.Cast<string>().SequenceEqual(new[] { "助手（默认）", "主人" }),
+                "role selector offers the assistant default and owner perspective");
+            role.SelectedIndex = 1; Pump(100);
+            Check(prefs.SpeakerRole == "owner" && brain.SpeakAsOwner
+                && JsonDocument.Parse(File.ReadAllText("preferences.json")).RootElement.GetProperty("SpeakerRole").GetString() == "owner",
+                "selecting owner updates the live model role and persists the setting");
+            role.SelectedIndex = 0; Pump(100);
+            Check(prefs.SpeakerRole == "assistant" && !brain.SpeakAsOwner,
+                "switching back restores the assistant role");
             var perception = Children<CheckBox>(settingsWindow).Single(c => (string?)c.Content == "感知当前应用");
             perception.IsChecked = false;
             perception.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); Pump(100);

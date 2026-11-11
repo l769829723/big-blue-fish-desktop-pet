@@ -37,6 +37,10 @@ Check(!settingSchema.GetProperty("additionalProperties").GetBoolean(), "Settings
 var settingProperties = settingSchema.GetProperty("properties");
 Check(settingProperties.EnumerateObject().Select(p => p.Name).Order().SequenceEqual(ControlTools.SettingNames.Order()), "Every writable setting is documented exactly once");
 Check(!settingProperties.TryGetProperty("McpEnabled", out _), "User-only MCP switch absent from writable schema");
+var speakerRole = settingProperties.GetProperty("SpeakerRole");
+Check(speakerRole.GetProperty("type").GetString() == "string"
+    && speakerRole.GetProperty("enum").EnumerateArray().Select(v => v.GetString()).SequenceEqual(new[] { "assistant", "owner" }),
+    "Speaker role schema restricts values to assistant and owner");
 foreach (var property in settingProperties.EnumerateObject()) Check(!string.IsNullOrWhiteSpace(property.Value.GetProperty("description").GetString()), "Setting description present: " + property.Name);
 var interval = settingProperties.GetProperty("AnimationIntervalSeconds");
 Check(interval.GetProperty("type").GetString()=="integer" && interval.GetProperty("minimum").GetInt32()==30 && interval.GetProperty("maximum").GetInt32()==300, "Animation interval schema matches runtime bounds");

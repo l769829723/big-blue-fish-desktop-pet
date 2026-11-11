@@ -53,6 +53,21 @@ internal static class NewsVerification
         Check(!((string)messages[0].content).Contains("语气演示") && !((string)messages[0].content).Contains("新衣服")
             && !((string)messages[0].content).Contains("屏幕资料"), "news system prompt is independent from ordinary speech examples and screen guidance");
         Check(((string)messages[1].content).Contains(items[0].Summary), "news request preserves factual summary");
+        var ownerMessages = CompanionBrain.BuildMessages(CompanionBrain.NewsPersona,
+            CompanionBrain.NewsRequest(items[0].Context, true), speakAsOwner: true);
+        Check(((string)ownerMessages[0].content).Contains("使用者本人")
+            && ((string)ownerMessages[0].content).Contains("向其他人")
+            && !((string)ownerMessages[0].content).Contains("以“主人，”开头"),
+            "owner mode replaces the fish persona with the computer user's voice for news");
+        Check(((string)ownerMessages[1].content).Contains("当前聊天中的其他人")
+            && !((string)ownerMessages[1].content).Contains("对主人说"),
+            "owner-mode news request addresses conversation partners rather than the user");
+        var ownerScreen = CompanionBrain.BuildMessages(CompanionBrain.OcrPersona,
+            CompanionBrain.OcrSpeechRequest("聊天正文：明天见。"), speakAsOwner: true);
+        Check(((string)ownerScreen[0].content).Contains("屏幕、截图和OCR文字")
+            && ((string)ownerScreen[0].content).Contains("使用者本人")
+            && !((string)ownerScreen[0].content).Contains("叫用户主人"),
+            "owner mode applies to screen-reading prompts without retaining assistant address instructions");
         string longer = "主人，" + string.Concat(Enumerable.Repeat("一条新闻", 30)) + "。请关注后续消息。";
         Check(CompanionBrain.Clean(longer).Length < 100,
             "news retains the ordinary bubble safety length limit");

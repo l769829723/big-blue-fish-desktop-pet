@@ -32,6 +32,7 @@ internal sealed partial class LinuxPetWindow
         speechVersion++; brain.Stop(); brain.UseGpu = Preferences.GpuEnabled; brain.UseExternalApi = Preferences.ModelBackend == "api"; brain.ExternalApiUrl = Preferences.LocalLlamaApiUrl;
         brain.RefreshModelAvailability();
         brain.StopOnBattery = Preferences.StopModelOnBattery; brain.WeatherRegionCode = Preferences.WeatherRegionCode;
+        brain.SpeakAsOwner = Preferences.SpeakerRole == "owner";
         ConfigureAgent();
         Rescale(); var appliedPosition = Clamp(requestedPosition); nextSpeech = DateTime.UtcNow.Add(Preferences.NextSpeechDelay(random)); nextEvent = DateTime.UtcNow.AddSeconds(Preferences.AnimationIntervalSeconds); nextWarmup = DateTime.MinValue;
         if (!Preferences.HideOnFullscreen && fullscreenHidden) { fullscreenHidden = false; if (!hidden) Show(); }
@@ -136,6 +137,8 @@ internal sealed partial class LinuxPetWindow
             CheckBox? weatherEnabled = null, newsEnabled = null;
             bool synchronizingPublicInfo = false;
             int publicInfoIndex = body.Children.Count;
+            Select("角色定位", new[] { "助手（默认）", "主人" }, Preferences.SpeakerRole == "owner" ? 1 : 0,
+                value => { Preferences.SpeakerRole = value == 1 ? "owner" : "assistant"; ApplySettings(); });
             newsEnabled = Toggle("主题灵感", Preferences.NewsEnabled, value => { Preferences.NewsEnabled = value; if (!synchronizingPublicInfo) ApplySettings(); });
             newsEnabled.IsEnabled = Preferences.PublicInfo;
             var chatty = Toggle("随聊", Preferences.Chatty, value => { Preferences.Chatty = value; ApplySettings(); });

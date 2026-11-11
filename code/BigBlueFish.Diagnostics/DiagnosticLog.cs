@@ -37,7 +37,7 @@ public static class DiagnosticLog
     static long sequence, revision;
     static string appDirectory = Path.GetFullPath(AppContext.BaseDirectory), dataDirectory = Path.GetFullPath(Environment.CurrentDirectory);
     static StreamWriter? sessionJournal;
-    static readonly HashSet<string> tokens = new(("start success failed cancelled blocked ready stopped hidden visible fullscreen user automatic test weather local agent setting "
+    static readonly HashSet<string> tokens = new(("start success failed cancelled blocked ready stopped hidden visible fullscreen user automatic test weather local agent setting assistant owner "
         + "persona news screen image ocr text GPU CPU cache cold warm startup exit idle Event Idle Click Drag Greeting Daily Startup Exit External PuppetIdle "
         + "Outbound Return BetweenMoves click drag_start drag_end user_message daily_care speech_test weather_request wakeup start_care connect reconnect new_conversation "
         + "set_configuration authentication permission read write model mode thought_level other unavailable unsupported empty expired changed enabled disabled "
@@ -47,7 +47,7 @@ public static class DiagnosticLog
         + "claude codex gemini dsh kimi qwen antigravity copilot cursor opencode cline codebuddy qoder trae kiro pi devin grok hermes openclaw minimax").Split(' ', StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal);
     static readonly HashSet<string> actions = LoadActions();
     static readonly Dictionary<string, string> previousSettings = new();
-    static readonly HashSet<string> settingNames = new(("ModelEnabled ModelBackend LocalLlamaApiUrl GpuEnabled PublicInfo WeatherEnabled NewsEnabled Chatty ForegroundEnabled StopModelOnBattery HideOnFullscreen CheckUpdatesOnStartup "
+    static readonly HashSet<string> settingNames = new(("ModelEnabled ModelBackend LocalLlamaApiUrl GpuEnabled PublicInfo WeatherEnabled NewsEnabled Chatty SpeakerRole ForegroundEnabled StopModelOnBattery HideOnFullscreen CheckUpdatesOnStartup "
         + "NewsSource NewsFilePath NewsApiUrl "
         + "AgentEnabled AgentHarnessId AgentDailySpeech PuppetMode AgentRespondToClick AgentRespondToDrag WeatherRegionCode Scale BubbleScale SpeechMinMinutes SpeechInterval BubbleDurationIndex "
         + "AnimationIntervalSeconds BreakfastHour LunchHour DinnerHour LastBrushDate Left Top StartupEnabled "
