@@ -15,6 +15,16 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 namespace BigBlueFish.Windows;
 public partial class MainWindow
 {
+    private const int GwlExStyle = -20;
+    private const long WsExToolWindow = 0x00000080L;
+    private const long WsExAppWindow = 0x00040000L;
+    private const long WsExNoActivate = 0x08000000L;
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
+    private const uint SwpFrameChanged = 0x0020;
+
     private CompanionPreferences preferences = null !;
     private CompanionBrain brain = null !;
     private DispatcherTimer companionTimer = null !;
@@ -279,8 +289,17 @@ public partial class MainWindow
         if (h == IntPtr.Zero)
             return;
         hookInstalled = true;
-        CompanionNative.SetStyle(h, -20, new IntPtr(CompanionNative.GetStyle(h, -20).ToInt64() | 0x08000000L | 0x80L));
+        EnsureCaptureDiscoverableStyle(h);
         HwndSource.FromHwnd(h)?.AddHook(CompanionWndProc);
+    }
+
+    private static void EnsureCaptureDiscoverableStyle(IntPtr hwnd)
+    {
+        long style = CompanionNative.GetStyle(hwnd, GwlExStyle).ToInt64();
+        style = (style | WsExAppWindow | WsExNoActivate) & ~WsExToolWindow;
+        CompanionNative.SetStyle(hwnd, GwlExStyle, new IntPtr(style));
+        CompanionNative.SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
+            SwpNoSize | SwpNoMove | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
     }
 
     private IntPtr CompanionWndProc(IntPtr hwnd, int msg, IntPtr w, IntPtr l, ref bool handled)
@@ -612,7 +631,7 @@ public partial class MainWindow
                         break;
                     case "inspectable":
                         ShowInTaskbar = true;
-                        CompanionNative.SetStyle(hwnd, -20, new IntPtr(CompanionNative.GetStyle(hwnd, -20).ToInt64() & ~0x80L));
+                        EnsureCaptureDiscoverableStyle(hwnd);
                         break;
                     case "normal-style":
                         ShowInTaskbar = false;
