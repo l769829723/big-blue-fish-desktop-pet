@@ -176,6 +176,27 @@ internal sealed class InstallerForm : ModernWindow
                 catch (System.ComponentModel.Win32Exception) { }
             }
         }
+
+        string runnerPath = Path.GetFullPath(Path.Combine(target, "runtime", "llama-server.exe"));
+        foreach (var process in Process.GetProcessesByName("llama-server"))
+        {
+            using (process)
+            {
+                string? executable;
+                try { executable = process.MainModule?.FileName; }
+                catch (System.ComponentModel.Win32Exception) { continue; }
+                if (!string.Equals(executable, runnerPath, StringComparison.OrdinalIgnoreCase)) continue;
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                    if (!process.WaitForExit(10000))
+                        throw new IOException("旧版本地推理进程仍在运行，无法替换运行时文件。请重试安装。");
+                }
+                catch (InvalidOperationException) { }
+                catch (System.ComponentModel.Win32Exception error)
+                { throw new IOException("无法停止旧版本地推理进程，无法替换运行时文件。请先重启电脑再重试安装。", error); }
+            }
+        }
     }
 
     internal static void FinishInstallation(string target, string installerPath)

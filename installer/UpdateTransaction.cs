@@ -39,7 +39,7 @@ internal static class UpdateTransaction
             if (journal.Phase == "installing")
             {
                 foreach (var relative in journal.NewFiles.Where(p => !Preserved(p)))
-                { var file = Resolve(target, relative); if (File.Exists(file)) File.Delete(file); }
+                { var file = Resolve(target, relative); DeleteFile(file); }
                 Write(target, journal with { Phase = "restoring" });
             }
             if (Directory.Exists(previous))
@@ -103,7 +103,40 @@ internal static class UpdateTransaction
         {
             if (!Path.GetFullPath(directory).StartsWith(Path.GetFullPath(target).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("更新临时目录无效。");
-            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            DeleteTree(directory);
         }
+    }
+
+    private static void DeleteFile(string file)
+    {
+        if (!File.Exists(file)) return;
+        File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);
+        File.Delete(file);
+    }
+
+    private static void DeleteTree(string directory)
+    {
+        if (!Directory.Exists(directory)) return;
+        if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
+        {
+            Directory.Delete(directory);
+            return;
+        }
+        foreach (var child in new DirectoryInfo(directory).EnumerateFileSystemInfos())
+        {
+            var attributes = child.Attributes;
+            if (child is DirectoryInfo subdirectory && (attributes & FileAttributes.ReparsePoint) == 0)
+                DeleteTree(subdirectory.FullName);
+            else if (child is DirectoryInfo link)
+                Directory.Delete(link.FullName);
+            else
+            {
+                if ((attributes & FileAttributes.ReparsePoint) == 0)
+                    File.SetAttributes(child.FullName, attributes & ~FileAttributes.ReadOnly);
+                File.Delete(child.FullName);
+            }
+        }
+        File.SetAttributes(directory, File.GetAttributes(directory) & ~FileAttributes.ReadOnly);
+        Directory.Delete(directory);
     }
 }
