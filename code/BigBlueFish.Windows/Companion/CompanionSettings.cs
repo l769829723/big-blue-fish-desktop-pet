@@ -153,6 +153,14 @@ public partial class MainWindow
         Toggle("启动时检查更新", preferences.CheckUpdatesOnStartup, v => preferences.CheckUpdatesOnStartup = v);
         p = pages[1];
         Toggle("自动获取天气和科技新闻", preferences.PublicInfo, v => preferences.PublicInfo = v);
+        p.Children.Add(new TextBlock { Text = "科技新闻来源", Margin = new Thickness(0, 10, 0, 4) });
+        var newsSource = new ComboBox { ItemsSource = new[] { "内置 IT之家 RSS", "从文件读取", "从 API 读取" }, SelectedIndex = preferences.NewsSource == "file" ? 1 : preferences.NewsSource == "api" ? 2 : 0, HorizontalAlignment = HorizontalAlignment.Stretch };
+        p.Children.Add(newsSource);
+        p.Children.Add(new TextBlock { Text = "文件路径或 API 地址（RSS/Atom 或 JSON）", Margin = new Thickness(0, 8, 0, 4) });
+        var newsLocation = new TextBox { Text = preferences.NewsLocation, MinWidth = 300 };
+        p.Children.Add(newsLocation);
+        newsSource.SelectionChanged += (_, _) => { preferences.NewsSource = newsSource.SelectedIndex switch { 1 => "file", 2 => "api", _ => "builtin" }; SaveCompanion(); };
+        newsLocation.LostKeyboardFocus += (_, _) => { preferences.NewsLocation = newsLocation.Text.Trim(); SaveCompanion(); };
         Toggle("感知当前应用", preferences.ForegroundEnabled, v => preferences.ForegroundEnabled = v);
 #if !COMPANION_SAFE
         p.Children.Add(new TextBlock { Text = "本地吐字在本机读取屏幕；由 Agent 编写日常关心时，会向它提供前台截图。", FontSize = 11,
@@ -162,7 +170,7 @@ public partial class MainWindow
         p = pages[0];
         var label = new TextBlock
         {
-            Text = $"缩放：{preferences.Scale:P0}",
+            Text = $"桌宠大小（%）：{preferences.Scale:P0}",
             Margin = new Thickness(0, 10, 0, 4)
         };
         p.Children.Add(label);
@@ -177,7 +185,7 @@ public partial class MainWindow
         scale.ValueChanged += (_, _) =>
         {
             preferences.Scale = scale.Value;
-            label.Text = $"缩放：{scale.Value:P0}";
+            label.Text = $"桌宠大小（%）：{scale.Value:P0}";
             ApplyCompanionScale();
         };
         p.Children.Add(scale);

@@ -9,6 +9,8 @@ internal sealed class CompanionPreferences
     public bool ModelEnabled { get; set; } = true;
     public bool GpuEnabled { get; set; } = true;
     public bool PublicInfo { get; set; } = true;
+    public string NewsSource { get; set; } = "builtin";
+    public string NewsLocation { get; set; } = "https://www.ithome.com/rss/";
     public bool ForegroundEnabled { get; set; } = true;
     public bool StopModelOnBattery { get; set; } = true;
     public bool HideOnFullscreen { get; set; } = true;

@@ -113,7 +113,7 @@ internal sealed partial class LinuxPetWindow
         try {
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
             client.DefaultRequestHeaders.UserAgent.ParseAdd("BigBlueFish/" + typeof(LinuxPetWindow).Assembly.GetName().Version!.ToString(3));
-            using var json = JsonDocument.Parse(await client.GetStringAsync("https://api.github.com/repos/Bai-Cute/big-blue-fish-desktop-pet/releases/latest"));
+            using var json = JsonDocument.Parse(await client.GetStringAsync("https://api.github.com/repos/l769829723/big-blue-fish-desktop-pet/releases/latest"));
             var root = json.RootElement; string tag = root.GetProperty("tag_name").GetString() ?? "";
             if (!Version.TryParse(tag.TrimStart('v'), out var latest) || latest <= typeof(LinuxPetWindow).Assembly.GetName().Version) { if (manual) await Confirm("检查更新", "当前已经是最新版本。", "知道了"); return; }
 #if COMPANION_SAFE

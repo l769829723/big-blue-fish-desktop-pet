@@ -13,7 +13,7 @@ internal sealed record AvailableUpdate(string Version, string Name, string Url, 
 
 internal static class UpdateService
 {
-    internal const string LatestUrl = "https://api.github.com/repos/Bai-Cute/big-blue-fish-desktop-pet/releases/latest";
+    internal const string LatestUrl = "https://api.github.com/repos/l769829723/big-blue-fish-desktop-pet/releases/latest";
     internal static async Task<AvailableUpdate?> Check(string currentVersion, CancellationToken token = default, HttpClient? client = null, string? apiUrl = null)
     {
         using var owned = client == null ? new HttpClient { Timeout = TimeSpan.FromSeconds(20) } : null;

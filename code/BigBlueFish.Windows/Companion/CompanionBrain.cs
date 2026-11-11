@@ -48,6 +48,8 @@ internal sealed class CompanionBrain : IDisposable
     internal bool UseGpu { get; set; } = true;
     internal bool StopOnBattery { get; set; } = true;
     internal string WeatherRegionCode { get; set; } = CompanionRegions.DefaultCode;
+    internal Func<string>? NewsLocation { get; set; }
+    internal Func<string>? NewsSource { get; set; }
     internal bool CanRunOnCurrentPower => !StopOnBattery || CompanionNative.OnAC;
     private DateTime nextModelCheck;
     private bool modelAvailable;
@@ -545,9 +547,17 @@ internal sealed class CompanionBrain : IDisposable
             try
             {
                 DiagnosticLog.Write(DiagnosticEvent.NewsFetch);
-                using var r = await publicWeb.GetAsync("https://www.ithome.com/rss/", token);
-                r.EnsureSuccessStatusCode();
-                newsItems = CompanionNews.ReadFeed(await r.Content.ReadAsStringAsync(token), DateTimeOffset.UtcNow);
+                string source = NewsSource?.Invoke() ?? "builtin";
+                string location = NewsLocation?.Invoke() ?? "https://www.ithome.com/rss/";
+                string content;
+                if (source == "file") content = await File.ReadAllTextAsync(location, token);
+                else
+                {
+                    using var r = await publicWeb.GetAsync(source == "builtin" ? "https://www.ithome.com/rss/" : location, token);
+                    r.EnsureSuccessStatusCode();
+                    content = await r.Content.ReadAsStringAsync(token);
+                }
+                newsItems = CompanionNews.Read(content, DateTimeOffset.UtcNow);
                 newsExpires = DateTime.UtcNow.AddMinutes(45);
             }
             catch (Exception e)when (e is not OperationCanceledException)

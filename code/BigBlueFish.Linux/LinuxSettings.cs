@@ -100,6 +100,12 @@ internal sealed partial class LinuxPetWindow
             deviceStatus.DetachedFromVisualTree += (_, _) => deviceClock.Stop();
             Toggle("笔记本离电时暂停模型", Preferences.StopModelOnBattery, value => { Preferences.StopModelOnBattery = value; ApplySettings(); });
             Toggle("联网获取天气和科技新闻", Preferences.PublicInfo, value => Preferences.PublicInfo = value);
+            Select("科技新闻来源", new[] { "内置 IT之家 RSS", "从文件读取", "从 API 读取" }, Preferences.NewsSource == "file" ? 1 : Preferences.NewsSource == "api" ? 2 : 0,
+                value => Preferences.NewsSource = value switch { 1 => "file", 2 => "api", _ => "builtin" });
+            body.Children.Add(new TextBlock { Text = "文件路径或 API 地址（RSS/Atom 或 JSON）", Margin = new Thickness(0, 4, 0, 2) });
+            var newsLocation = new TextBox { Text = Preferences.NewsLocation };
+            newsLocation.LostFocus += (_, _) => { Preferences.NewsLocation = newsLocation.Text?.Trim() ?? ""; Save(); };
+            body.Children.Add(newsLocation);
             Toggle("感知当前前台应用", Preferences.ForegroundEnabled, value => Preferences.ForegroundEnabled = value);
 #if !COMPANION_SAFE
             body.Children.Add(Paragraph("本地吐字在本机读取屏幕；由 Agent 编写日常关心时，会向它提供前台截图。"));

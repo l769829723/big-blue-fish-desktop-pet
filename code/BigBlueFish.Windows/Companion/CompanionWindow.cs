@@ -122,7 +122,9 @@ public partial class MainWindow
         {
             UseGpu = preferences.GpuEnabled,
             StopOnBattery = preferences.StopModelOnBattery,
-            WeatherRegionCode = preferences.WeatherRegionCode
+            WeatherRegionCode = preferences.WeatherRegionCode,
+            NewsSource = () => preferences.NewsSource,
+            NewsLocation = () => preferences.NewsLocation
         };
         InitializeComponent();
         System.Windows.Shell.WindowChrome.SetWindowChrome(this, null);
@@ -130,6 +132,7 @@ public partial class MainWindow
         Background = null;
         WindowStyle = WindowStyle.None;
         ShowActivated = false;
+        Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(System.IO.Path.Combine(AppContext.BaseDirectory, "BigBlueFish.ico")));
         // Keep the pet as a normal app window so external capture APIs and
         // window pickers can enumerate its HWND. Tool windows are commonly filtered.
         ShowInTaskbar = true;
