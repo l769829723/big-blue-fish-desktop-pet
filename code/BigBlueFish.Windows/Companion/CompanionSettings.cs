@@ -138,7 +138,7 @@ public partial class MainWindow
                     BigBlueFish.Diagnostics.DiagnosticLog.Write(BigBlueFish.Diagnostics.DiagnosticEvent.SettingsChanged, kind: "setting", state: "success", enabled: enabled);
                     SaveCompanion();
                 }
-                catch (Exception error) { BigBlueFish.Diagnostics.DiagnosticLog.Write(BigBlueFish.Diagnostics.DiagnosticEvent.SettingsChanged, kind: "setting", state: "failed", enabled: enabled, error: error); ModernUI.Error(w, "设置未能应用", error); }
+                catch (Exception error) { BigBlueFish.Diagnostics.DiagnosticLog.Write(BigBlueFish.Diagnostics.DiagnosticEvent.SettingsChanged, kind: "setting", state: "failed", enabled: enabled, error: error); BigBlueFish.Deployment.ModernUI.Error(w, "设置未能应用", error); }
             };
             p.Children.Add(c);
             return c;
@@ -347,8 +347,8 @@ public partial class MainWindow
         {
             Margin = new Thickness(0, 8, 0, 8)
         };
-        foreach (var interval in CompanionPreferences.SpeechIntervals)
-            freq.Items.Add("说话间隔：" + interval.Label);
+        foreach (var speechInterval in CompanionPreferences.SpeechIntervals)
+            freq.Items.Add("说话间隔：" + speechInterval.Label);
         freq.SelectedIndex = preferences.SpeechIntervalIndex;
         freq.SelectionChanged += (_, _) =>
         {

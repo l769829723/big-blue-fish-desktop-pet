@@ -9,6 +9,7 @@ using System.Windows.Forms;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using BigBlueFish.Windows;
 
 // Positions the visible character at the monitor edge and keeps its separate bubble inside the work area.
 public static class CompanionEdgeLayout
