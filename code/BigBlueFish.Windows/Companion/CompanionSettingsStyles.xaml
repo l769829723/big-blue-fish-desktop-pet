@@ -20,6 +20,22 @@
             </ControlTemplate></Setter.Value>
         </Setter>
     </Style>
+    <Style TargetType="TextBox">
+        <Setter Property="Foreground" Value="#31405E"/>
+        <Setter Property="Background" Value="#F7F9FD"/>
+        <Setter Property="BorderBrush" Value="#DCE5F2"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="10,7"/>
+        <Setter Property="MinHeight" Value="36"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="CaretBrush" Value="#597CC8"/>
+        <Setter Property="SelectionBrush" Value="#AFC8F2"/>
+        <Style.Triggers>
+            <Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="BorderBrush" Value="#5478BD"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.5"/></Trigger>
+            <Trigger Property="IsReadOnly" Value="True"><Setter Property="Background" Value="#EDF1F7"/></Trigger>
+        </Style.Triggers>
+    </Style>
     <Style TargetType="CheckBox">
         <Setter Property="Foreground" Value="#31405E"/>
         <Setter Property="Cursor" Value="Hand"/>

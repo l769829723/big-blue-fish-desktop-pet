@@ -47,7 +47,20 @@ internal sealed class CompanionComposition : IDisposable
         finally{if(sprite!=null)sprite.IsNativeInput=false;try{if(owner is MainWindow fish)fish.TraceCompanionPointer(message,buttons);}catch{}}
     }
     internal void Attach(IntPtr swapchain,bool mirror)
-    {mirrored=mirror;Check(AttachNative(handle,swapchain));image.Opacity=0;Update();}
+    {
+        mirrored=mirror;
+        try
+        {
+            Check(AttachNative(handle,swapchain));
+            if(owner is MainWindow fish)fish.UseCompositionTaskbarWindow(true);
+            image.Opacity=0;Update();
+        }
+        catch
+        {
+            if(owner is MainWindow fish)fish.UseCompositionTaskbarWindow(false);
+            throw;
+        }
+    }
     internal void Present(CompanionMediaFrame frame)
     {Update();Check(Shape(handle,frame.Data,frame.Width,frame.Height,frame.Stride,mirrored?1:0));ready=true;SetVisible(owner.IsVisible);}
     void Layout(object? sender,EventArgs e)=>Update();
@@ -62,11 +75,11 @@ internal sealed class CompanionComposition : IDisposable
         SetVisible(ready);
     }
     void SetVisible(bool visible){int value=visible?1:0;if(value!=lastVisible&&handle!=IntPtr.Zero){Show(handle,value);lastVisible=value;}}
-    internal void Hide(){SetVisible(false);image.Opacity=1;ready=false;}
+    internal void Hide(){SetVisible(false);image.Opacity=1;ready=false;if(owner is MainWindow fish)fish.UseCompositionTaskbarWindow(false);}
     public void Dispose()
     {
         owner.LocationChanged-=Layout;owner.SizeChanged-=Layout;owner.IsVisibleChanged-=VisibilityChanged;image.LayoutUpdated-=Layout;
-        if(handle!=IntPtr.Zero)Destroy(handle);handle=IntPtr.Zero;image.Opacity=1;
+        if(handle!=IntPtr.Zero)Destroy(handle);handle=IntPtr.Zero;image.Opacity=1;if(owner is MainWindow fish)fish.UseCompositionTaskbarWindow(false);
     }
     // Resolved alongside the bundled GStreamer libraries by CompanionMedia.
     const string Library="bbf-composition";

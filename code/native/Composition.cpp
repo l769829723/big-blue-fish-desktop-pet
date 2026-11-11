@@ -67,6 +67,7 @@ static HRESULT UpdateRegion(Surface* s) {
 static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w, LPARAM l) {
     if(message==WM_NCCREATE) SetWindowLongPtrW(window,GWLP_USERDATA,(LONG_PTR)((CREATESTRUCT*)l)->lpCreateParams);
     auto surface=(Surface*)GetWindowLongPtrW(window,GWLP_USERDATA);
+    if(surface && message==WM_CLOSE) { if(surface->owner)PostMessageW(surface->owner,WM_CLOSE,0,0);return 0; }
     if(surface && message==WM_NCHITTEST) {
         POINT p{(short)LOWORD(l),(short)HIWORD(l)};ScreenToClient(window,&p);RECT r{};GetClientRect(window,&r);
         if(r.right<=0||r.bottom<=0||surface->alpha.empty())return HTTRANSPARENT;
@@ -94,8 +95,13 @@ extern "C" __declspec(dllexport) HRESULT surface_create(HWND owner,void(__cdecl*
     static const ATOM atom=[] {WNDCLASSW c{};c.style=CS_DBLCLKS;c.hInstance=GetModuleHandleW(nullptr);c.lpfnWndProc=WindowProc;c.lpszClassName=L"BigBlueFish.Composition";c.hCursor=LoadCursor(nullptr,IDC_ARROW);return RegisterClassW(&c);}();
     if(!atom)return HRESULT_FROM_WIN32(GetLastError());
     auto s=new Surface();s->owner=owner;s->input=input;
-    s->window=CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP|WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE,L"BigBlueFish.Composition",L"蓝色大肥鱼 · 动画",WS_POPUP,0,0,1,1,owner,nullptr,GetModuleHandleW(nullptr),s);
+    s->window=CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP|WS_EX_APPWINDOW|WS_EX_NOACTIVATE,L"BigBlueFish.Composition",L"蓝色大肥鱼",WS_POPUP,0,0,1,1,owner,nullptr,GetModuleHandleW(nullptr),s);
     HRESULT hr=s->window?S_OK:HRESULT_FROM_WIN32(GetLastError());
+    if(SUCCEEDED(hr)) {
+        HICON big=(HICON)SendMessageW(owner,WM_GETICON,ICON_BIG,0),small=(HICON)SendMessageW(owner,WM_GETICON,ICON_SMALL,0);
+        if(!big)big=(HICON)GetClassLongPtrW(owner,GCLP_HICON);if(!small)small=(HICON)GetClassLongPtrW(owner,GCLP_HICONSM);
+        if(big)SendMessageW(s->window,WM_SETICON,ICON_BIG,(LPARAM)big);if(small)SendMessageW(s->window,WM_SETICON,ICON_SMALL,(LPARAM)small);
+    }
     if(SUCCEEDED(hr))hr=DCompositionCreateDevice(nullptr,__uuidof(IDCompositionDevice),(void**)s->device.GetAddressOf());
     if(SUCCEEDED(hr))hr=s->device->CreateTargetForHwnd(s->window,TRUE,&s->target);
     if(SUCCEEDED(hr))hr=s->device->CreateVisual(&s->visual);

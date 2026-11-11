@@ -33,7 +33,8 @@ public partial class MainWindow
             Background = new SolidColorBrush(Color.FromRgb(246, 248, 252)),
             FontFamily = new FontFamily("Microsoft YaHei UI"),
             FontSize = 14,
-            ShowInTaskbar = true,
+            Owner = this,
+            ShowInTaskbar = false,
             Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(System.IO.Path.Combine(AppContext.BaseDirectory, "BigBlueFish.ico"))),
             ShowActivated = true,
             Topmost = false
@@ -79,22 +80,35 @@ public partial class MainWindow
         var pages = new StackPanel[titles.Length];
         var views = new ScrollViewer[titles.Length];
         var navigation = new Button[titles.Length];
+        var pageHost = new ContentControl();
+        Grid.SetColumn(pageHost, 1);
+        shell.Children.Add(pageHost);
         for (int i = 0; i < pages.Length; i++)
         {
             pages[i] = new StackPanel { Margin = new Thickness(26, 24, 26, 24) };
             pages[i].Children.Add(new TextBlock { Text = titles[i], FontSize = 25, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(Color.FromRgb(42, 56, 83)), Margin = new Thickness(0, 0, 0, 20) });
-            views[i] = new ScrollViewer { Content = pages[i], VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Visibility = i == selectedPage ? Visibility.Visible : Visibility.Collapsed };
-            Grid.SetColumn(views[i], 1); shell.Children.Add(views[i]);
+            views[i] = new ScrollViewer { Content = pages[i], VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             int selected = i;
             var button = navigation[i] = new Button { Content = titles[i], HorizontalContentAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 10), BorderThickness = new Thickness(0), Background = i == selectedPage ? new SolidColorBrush(Color.FromRgb(220, 234, 255)) : Brushes.Transparent };
             button.Click += (_, _) =>
             {
-                selectedPage = selected;
-                for (int n = 0; n < views.Length; n++)
-                { views[n].Visibility = n == selected ? Visibility.Visible : Visibility.Collapsed; navigation[n].Background = n == selected ? new SolidColorBrush(Color.FromRgb(220, 234, 255)) : Brushes.Transparent; }
+                try
+                {
+                    CloseDropDowns(pageHost);
+                    selectedPage = selected;
+                    pageHost.Content = views[selected];
+                    for (int n = 0; n < views.Length; n++)
+                        navigation[n].Background = n == selected ? new SolidColorBrush(Color.FromRgb(220, 234, 255)) : Brushes.Transparent;
+                }
+                catch (Exception e)
+                {
+                    DiagnosticLog.Write(DiagnosticEvent.SettingsOpened, kind: "tab-switch", error: e);
+                    BigBlueFish.Deployment.ModernUI.Error(w, "切换设置页面失败", e);
+                }
             };
             sidebar.Children.Add(button);
         }
+        pageHost.Content = views[selectedPage];
         void Card(StackPanel panel)
         {
             var children = panel.Children.Cast<UIElement>().Skip(1).ToArray();
@@ -348,7 +362,7 @@ public partial class MainWindow
             base.Close();
         });
         Action? disposeMcpSettings = titles.Contains("连接 Agent") ? AddMcpSettings(pages[3], w) : null;
-        Action disposeLog = BuildLogConsole(pages[^1], w, () => views[^1].Visibility == Visibility.Visible);
+        Action disposeLog = BuildLogConsole(pages[^1], w, () => ReferenceEquals(pageHost.Content, views[^1]));
         foreach (var panel in pages) Card(panel);
         disposeCompanionSettingsContent = () => { timer.Stop(); disposeMcpSettings?.Invoke(); disposeLog(); };
         refreshCompanionSettings = () => BuildCompanionSettingsContent(w, selectedPage, views.Select(v => v.VerticalOffset).ToArray());
@@ -357,6 +371,13 @@ public partial class MainWindow
             if (companionSettings != w || w.Content != shell) return;
             for (int i = 0; i < views.Length; i++) views[i].ScrollToVerticalOffset(scrollOffsets[i]);
         }));
+    }
+
+    private static void CloseDropDowns(DependencyObject root)
+    {
+        if (root is ComboBox combo) combo.IsDropDownOpen = false;
+        for (int i = VisualTreeHelper.GetChildrenCount(root) - 1; i >= 0; i--)
+            CloseDropDowns(VisualTreeHelper.GetChild(root, i));
     }
 
     private void ActivateCompanionSettings(Window window)

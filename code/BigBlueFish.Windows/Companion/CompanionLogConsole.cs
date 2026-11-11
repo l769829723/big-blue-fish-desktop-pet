@@ -35,9 +35,9 @@ public partial class MainWindow
         }
         save.Click += (_, _) =>
         {
-            var dialog = new SaveFileDialog { Title = "保存排障日志", DefaultExt = ".txt", Filter = "文本文件 (*.txt)|*.txt", FileName = $"BigBlueFish-diagnostics-{DateTime.Now:yyyyMMdd-HHmmss}.txt" };
+            var dialog = new SaveFileDialog { Title = "保存排障日志", DefaultExt = ".txt", AddExtension = true, OverwritePrompt = true, RestoreDirectory = true, InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), Filter = "文本文件 (*.txt)|*.txt", FileName = $"BigBlueFish-diagnostics-{DateTime.Now:yyyyMMdd-HHmmss}.txt" };
             if (dialog.ShowDialog(owner) != true) return;
-            try { DiagnosticLog.SaveText(dialog.FileName); DiagnosticLog.Write(DiagnosticEvent.LogExported, directory: System.IO.Path.GetDirectoryName(dialog.FileName)); }
+            try { DiagnosticLog.SaveText(dialog.FileName); DiagnosticLog.Write(DiagnosticEvent.LogExported, directory: System.IO.Path.GetDirectoryName(dialog.FileName)); MessageBox.Show(owner, "排障日志已保存到：\n" + dialog.FileName, "日志已保存", MessageBoxButton.OK, MessageBoxImage.Information); }
             catch (Exception error) { DiagnosticLog.Write(DiagnosticEvent.LogExportFailed, error: error); BigBlueFish.Deployment.ModernUI.Error(owner, "保存日志失败", error); }
         };
         var clock = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };

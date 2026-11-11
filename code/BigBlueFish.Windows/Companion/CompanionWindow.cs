@@ -303,13 +303,21 @@ public partial class MainWindow
         HwndSource.FromHwnd(h)?.AddHook(CompanionWndProc);
     }
 
-    private static void EnsureCaptureDiscoverableStyle(IntPtr hwnd)
+    private void EnsureCaptureDiscoverableStyle(IntPtr hwnd)
     {
         long style = CompanionNative.GetStyle(hwnd, GwlExStyle).ToInt64();
-        style = (style | WsExAppWindow | WsExNoActivate) & ~WsExToolWindow;
+        style = ShowInTaskbar
+            ? (style | WsExAppWindow | WsExNoActivate) & ~WsExToolWindow
+            : (style | WsExToolWindow | WsExNoActivate) & ~WsExAppWindow;
         CompanionNative.SetStyle(hwnd, GwlExStyle, new IntPtr(style));
         CompanionNative.SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
             SwpNoSize | SwpNoMove | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
+    }
+
+    internal void UseCompositionTaskbarWindow(bool enabled)
+    {
+        ShowInTaskbar = !enabled;
+        EnsureCaptureDiscoverableStyle(new WindowInteropHelper(this).Handle);
     }
 
     private IntPtr CompanionWndProc(IntPtr hwnd, int msg, IntPtr w, IntPtr l, ref bool handled)
