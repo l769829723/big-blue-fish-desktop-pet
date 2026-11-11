@@ -9,6 +9,45 @@ using System.Windows.Automation;
 namespace BigBlueFish.Windows;
 internal static class CompanionNative
 {
+    [ComImport, Guid("AA509086-5CA9-4C25-8F95-589D3C07B48A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IVirtualDesktopManager
+    {
+        [PreserveSig] int IsWindowOnCurrentVirtualDesktop(IntPtr window, [MarshalAs(UnmanagedType.Bool)] out bool current);
+        [PreserveSig] int GetWindowDesktopId(IntPtr window, out Guid desktopId);
+        [PreserveSig] int MoveWindowToDesktop(IntPtr window, ref Guid desktopId);
+    }
+    [ComImport, Guid("6D5140C1-7436-11CE-8034-00AA006009FA"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IComServiceProvider
+    {
+        void QueryService(ref Guid service, ref Guid iid, [MarshalAs(UnmanagedType.IUnknown)] out object result);
+    }
+    [ComImport, Guid("1841C6D7-4F9D-42C0-AF41-8747538F10E5"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IApplicationViewCollection
+    {
+        IntPtr GetViews();
+        IntPtr GetViewsByZOrder();
+        IntPtr GetViewsByAppUserModelId(string id);
+        IApplicationView GetViewForHwnd(IntPtr hwnd);
+    }
+    [ComImport, Guid("372E1D3B-38D3-42E4-A15B-8AB2B178F513"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IApplicationView { }
+    [ComImport, Guid("4CE81583-1E4C-4632-A621-07A53543148F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IVirtualDesktopPinnedApps
+    {
+        [return: MarshalAs(UnmanagedType.Bool)] bool IsAppIdPinned([MarshalAs(UnmanagedType.LPWStr)] string appId);
+        void PinAppID([MarshalAs(UnmanagedType.LPWStr)] string appId);
+        void UnpinAppID([MarshalAs(UnmanagedType.LPWStr)] string appId);
+        [return: MarshalAs(UnmanagedType.Bool)] bool IsViewPinned(IApplicationView view);
+        void PinView(IApplicationView view);
+        void UnpinView(IApplicationView view);
+    }
+    private sealed record PinnedDesktopServices(IApplicationViewCollection Views, IVirtualDesktopPinnedApps PinnedApps);
+    private static readonly Lazy<IVirtualDesktopManager?> virtualDesktop = new(() =>
+    {
+        try { return (IVirtualDesktopManager?)Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("AA509086-5CA9-4C25-8F95-589D3C07B48A"), true)!); }
+        catch { return null; }
+    });
+    private static readonly Lazy<PinnedDesktopServices?> pinnedDesktop = new(CreatePinnedDesktopServices);
     internal static bool? TestPowerOverride;
     [DllImport("user32.dll")]
     internal static extern IntPtr GetForegroundWindow();
@@ -40,6 +79,8 @@ internal static class CompanionNative
     internal static extern IntPtr GetStyle(IntPtr h, int n);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
     internal static extern IntPtr SetStyle(IntPtr h, int n, IntPtr v);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern IntPtr GetWindowLongPtr(IntPtr h, int n);
     [DllImport("user32.dll")]
     internal static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
     [StructLayout(LayoutKind.Sequential)]
@@ -148,6 +189,61 @@ internal static class CompanionNative
         if (handle == IntPtr.Zero || !IsWindow(handle) || !IsWindowVisible(handle) || IsIconic(handle))
             return false;
         return DwmGetWindowAttribute(handle, 14 /* DWMWA_CLOAKED */, out var cloaked, sizeof(int)) != 0 || cloaked == 0;
+    }
+
+    internal static bool IsOnCurrentVirtualDesktop(IntPtr handle)
+    {
+        if (handle == IntPtr.Zero || virtualDesktop.Value is not { } manager) return true;
+        try { return manager.IsWindowOnCurrentVirtualDesktop(handle, out var current) != 0 || current; }
+        catch { return true; }
+    }
+
+    internal static bool MoveToCurrentVirtualDesktop(IntPtr handle)
+    {
+        if (handle == IntPtr.Zero || virtualDesktop.Value is not { } manager) return false;
+        try
+        {
+            var foreground = GetForegroundWindow();
+            if (foreground == IntPtr.Zero || manager.GetWindowDesktopId(foreground, out var desktop) != 0) return false;
+            return manager.MoveWindowToDesktop(handle, ref desktop) == 0;
+        }
+        catch { return false; }
+    }
+
+    private static PinnedDesktopServices? CreatePinnedDesktopServices()
+    {
+        try
+        {
+            var shellType = Type.GetTypeFromCLSID(new Guid("C2F03A33-21F5-47FA-B4BB-156362A2F239"), true)!;
+            if (Activator.CreateInstance(shellType) is not IComServiceProvider shell) return null;
+            Guid pinnedService = new("B5A399E7-1C87-46B8-88E9-FC5747B171BD");
+            Guid pinnedIid = typeof(IVirtualDesktopPinnedApps).GUID;
+            shell.QueryService(ref pinnedService, ref pinnedIid, out var pinnedObject);
+            Guid viewsService = typeof(IApplicationViewCollection).GUID;
+            shell.QueryService(ref viewsService, ref viewsService, out var viewsObject);
+            return new((IApplicationViewCollection)viewsObject, (IVirtualDesktopPinnedApps)pinnedObject);
+        }
+        catch (COMException) { return null; }
+        catch (InvalidCastException) { return null; }
+        catch (ArgumentException) { return null; }
+    }
+
+    internal static bool PinWindowToAllVirtualDesktops(IntPtr handle)
+    {
+        if (handle == IntPtr.Zero) return false;
+        try
+        {
+            var services = pinnedDesktop.Value;
+            if (services == null) return false;
+            var view = services.Views.GetViewForHwnd(handle);
+            if (view == null) return false;
+            if (services.PinnedApps.IsViewPinned(view)) return true;
+            services.PinnedApps.PinView(view);
+            return services.PinnedApps.IsViewPinned(view);
+        }
+        catch (COMException) { return false; }
+        catch (InvalidCastException) { return false; }
+        catch (ArgumentException) { return false; }
     }
 
     internal static bool IsExternalForegroundCandidate(IntPtr handle)
@@ -265,7 +361,15 @@ internal static class CompanionNative
         {
         }
 
+        // A maximized window covers the monitor too, but still has a caption and
+        // resize frame. Treat only borderless windows that closely match the
+        // monitor bounds as full screen (games, video players, presentations).
+        const long WsCaption = 0x00C00000L;
+        const long WsThickFrame = 0x00040000L;
+        long style = GetWindowLongPtr(h, -16).ToInt64();
+        if ((style & (WsCaption | WsThickFrame)) != 0) return false;
         var b = System.Windows.Forms.Screen.FromHandle(h).Bounds;
-        return r.Left <= b.Left && r.Top <= b.Top && r.Right >= b.Right && r.Bottom >= b.Bottom;
+        return Math.Abs(r.Left - b.Left) <= 2 && Math.Abs(r.Top - b.Top) <= 2
+            && Math.Abs(r.Right - b.Right) <= 2 && Math.Abs(r.Bottom - b.Bottom) <= 2;
     }
 }

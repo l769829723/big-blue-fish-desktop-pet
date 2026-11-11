@@ -75,6 +75,13 @@ internal static class SpeechFlowVerification
                 Check(samples.All(n => n >= range.Min && n <= range.Max), $"scheduled intervals stay within {range.Min}-{range.Max}");
                 Check(samples.Min() < range.Min + .1 && samples.Max() > range.Max - .1, "both ends of selected range are sampled");
             }
+            foreach (var (id, minimum, maximum) in new[] { ("10s", 10, 30), ("30s", 30, 60) })
+            {
+                var settings = new CompanionPreferences { SpeechInterval = id };
+                var samples = Enumerable.Range(0, 1000).Select(_ => settings.NextSpeechDelay(random).TotalSeconds).ToArray();
+                Check(samples.All(n => n >= minimum && n <= maximum), $"scheduled interval {id} stays within {minimum}-{maximum} seconds");
+                Check(samples.Min() < minimum + 1 && samples.Max() > maximum - 1, $"short interval {id} samples both ends");
+            }
             Check(CompanionPreferences.NormalizeSpeechMinimum(8) == 10 && CompanionPreferences.NormalizeSpeechMinimum(30) == 20,
                 "old interval settings migrate to supported ranges");
             window = new MainWindow(); window.Show();
@@ -82,6 +89,8 @@ internal static class SpeechFlowVerification
             ((DispatcherTimer)Field(window, "companionTimer")!).Stop();
             var prefs = (CompanionPreferences)Field(window, "preferences")!;
             var brain = (CompanionBrain)Field(window, "brain")!;
+            Check(!prefs.PublicInfo && !prefs.WeatherEnabled && !prefs.NewsEnabled,
+                "disabled public-information master switch normalizes both child options on load");
             Invoke(window, "OpenCompanionSettings"); Pump(150);
             var settingsWindow = (Window)Field(window, "companionSettings")!;
             Children<System.Windows.Controls.Button>(settingsWindow).Single(b => (string?)b.Content == "日志控制台")
@@ -111,11 +120,52 @@ internal static class SpeechFlowVerification
             }
             Children<System.Windows.Controls.Button>(settingsWindow).Single(b => (string?)b.Content == "说话与天气")
                 .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); Pump(100);
-            var frequency = Children<ComboBox>(settingsWindow).Single(c => c.Items.Count == 6 && c.Items[0].ToString()!.StartsWith("说话间隔"));
-            Check(frequency.Items.Cast<string>().SequenceEqual(new[] { "说话间隔：2–3 分钟", "说话间隔：3–5 分钟", "说话间隔：5–8 分钟", "说话间隔：10–16 分钟", "说话间隔：15–23 分钟", "说话间隔：20–30 分钟" }), "all six exact interval labels appear");
+            var perception = Children<CheckBox>(settingsWindow).Single(c => (string?)c.Content == "感知当前应用");
+            perception.IsChecked = false;
+            perception.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); Pump(100);
+            Check(!prefs.ForegroundEnabled && settingsWindow.IsVisible, "disabling foreground perception keeps the settings window alive");
+            perception.IsChecked = true;
+            perception.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); Pump(100);
+            Check(prefs.ForegroundEnabled, "foreground perception can be re-enabled from settings");
+            var publicInfo = Children<CheckBox>(settingsWindow).Single(c => (string?)c.Content == "自动获取天气和科技新闻");
+            var weather = Children<CheckBox>(settingsWindow).Single(c => (string?)c.Content == "自动获取天气");
+            var news = Children<CheckBox>(settingsWindow).Single(c => (string?)c.Content == "自动获取科技新闻");
+            publicInfo.IsChecked = true;
+            publicInfo.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); Pump(100);
+            Check(prefs.PublicInfo && prefs.WeatherEnabled && prefs.NewsEnabled && weather.IsEnabled && news.IsEnabled,
+                "enabling public information synchronizes and enables both child options");
+            publicInfo.IsChecked = false;
+            publicInfo.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); Pump(100);
+            Check(!prefs.PublicInfo && !prefs.WeatherEnabled && !prefs.NewsEnabled && !weather.IsEnabled && !news.IsEnabled,
+                "disabling public information synchronizes and disables both child options");
+            publicInfo.IsChecked = true;
+            publicInfo.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); Pump(100);
+            var frequency = Children<ComboBox>(settingsWindow).Single(c => c.Items.Count == 8 && c.Items[0].ToString()!.StartsWith("说话间隔"));
+            Check(frequency.Items.Cast<string>().SequenceEqual(new[] {
+                "说话间隔：10–30 秒", "说话间隔：30–60 秒", "说话间隔：2–3 分钟", "说话间隔：3–5 分钟",
+                "说话间隔：5–8 分钟", "说话间隔：10–16 分钟", "说话间隔：15–23 分钟", "说话间隔：20–30 分钟"
+            }), "all eight exact interval labels appear");
             frequency.SelectedIndex = 0; Pump();
+            Check(prefs.SpeechInterval == "10s", "shortest speech interval selection persists");
+            frequency.SelectedIndex = 1; Pump();
+            Check(prefs.SpeechInterval == "30s", "second short speech interval selection persists");
+            frequency.SelectedIndex = 2; Pump();
             var remaining = ((DateTime)Field(window, "nextSpeech")! - DateTime.UtcNow).TotalMinutes;
             Check(remaining >= 1.99 && remaining <= 3, "changing range reschedules with the same selected bounds");
+            Children<System.Windows.Controls.Button>(settingsWindow).Single(b => (string?)b.Content == "模型与供电")
+                .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); Pump(100);
+            var backend = Children<ComboBox>(settingsWindow).Single(c => c.Items.Count == 2 && c.Items[0]?.ToString() == "内置模型（默认）");
+            var apiUrl = Children<TextBox>(settingsWindow).Single(t => t.Text.StartsWith("http://127.0.0.1:8080"));
+            var gpu = Children<CheckBox>(settingsWindow).Single(c => (string?)c.Content == "使用显卡加速（关闭则使用 CPU）");
+            var battery = Children<CheckBox>(settingsWindow).Single(c => (string?)c.Content == "拔电时暂停并卸载模型");
+            backend.SelectedIndex = 1; Pump(100);
+            Check(prefs.ModelBackend == "api" && !prefs.GpuEnabled && !prefs.StopModelOnBattery
+                && !gpu.IsEnabled && !battery.IsEnabled && apiUrl.Visibility == Visibility.Visible,
+                "local llama API disables built-in-only options and shows its address");
+            Check(brain.RunnerPid == null, "switching to local llama API unloads the built-in model process");
+            backend.SelectedIndex = 0; Pump(100);
+            Check(prefs.ModelBackend == "builtin" && apiUrl.Visibility == Visibility.Collapsed
+                && gpu.IsEnabled && battery.IsEnabled, "switching back to built-in model hides the API address and restores its options");
             prefs.ModelEnabled = true;
             brain.Stop();
             var warmup = brain.WarmUp();

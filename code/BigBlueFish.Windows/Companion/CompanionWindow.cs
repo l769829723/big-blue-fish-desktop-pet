@@ -86,8 +86,15 @@ public partial class MainWindow
         if (wasFullscreenHidden != fullscreenHidden) DiagnosticLog.Write(DiagnosticEvent.VisibilityChanged, kind: "fullscreen", state: fullscreenHidden ? "hidden" : "visible");
         bool show = !hiddenByUser && !fullscreenHidden;
         if (show && !IsVisible) { Show(); ClampCompanion(); }
-        if (show && wasFullscreenHidden) { Topmost = false; Topmost = true; }
-        else if (!show && IsVisible) { InvalidateSpeechRequests(); Hide(); }
+        if (show && wasFullscreenHidden)
+        {
+            Topmost = false;
+            Topmost = true;
+            CompanionNative.SetWindowPos(new System.Windows.Interop.WindowInteropHelper(this).Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0013);
+            CompanionEdgeLayout.Refresh(this);
+        }
+        else if (!show && IsVisible) { InvalidateSpeechRequests(); CompanionEdgeLayout.Hide(this); Hide(); }
+        if (show) CompanionEdgeLayout.CheckVirtualDesktop(this);
         if (videoPlayer != null) videoPlayer.Paused = !exitAnimation && !show;
     }
     private readonly IntPtr startupForeground = CompanionNative.GetForegroundWindow();
@@ -355,9 +362,11 @@ public partial class MainWindow
     private void ApplyCompanionPowerPolicy()
     {
         if (brain == null || preferences == null) return;
-        brain.StopOnBattery = preferences.StopModelOnBattery;
         brain.UseExternalApi = preferences.ModelBackend == "api";
         brain.ExternalApiUrl = preferences.LocalLlamaApiUrl;
+        if (brain.UseExternalApi) preferences.GpuEnabled = preferences.StopModelOnBattery = false;
+        brain.StopOnBattery = preferences.StopModelOnBattery;
+        brain.UseGpu = preferences.GpuEnabled;
         if (!brain.CanRunOnCurrentPower)
         {
             InvalidateSpeechRequests(true);
@@ -418,8 +427,9 @@ public partial class MainWindow
             preferences.Save();
         DiagnosticLog.ObserveSettings(preferences);
         }
-        catch
+        catch (Exception error)
         {
+            DiagnosticLog.Write(DiagnosticEvent.SettingsChanged, kind: "settings", error: error);
         }
     }
 
@@ -704,7 +714,7 @@ public partial class MainWindow
                 InvalidateSpeechRequests(true);
             ClearCompanionModelReply();
         }
-        else if (!AgentDailyActive && modelInstaller == null && preferences.ModelEnabled && brain.ModelAvailable && !speechRequestPending && !brain.Busy && brain.RunnerPid == null && now >= nextWarmup)
+        else if (!brain.UseExternalApi && !AgentDailyActive && modelInstaller == null && preferences.ModelEnabled && brain.ModelAvailable && !speechRequestPending && !brain.Busy && brain.RunnerPid == null && now >= nextWarmup)
         {
             nextWarmup = now.AddMinutes(2);
             _ = brain.WarmUp();

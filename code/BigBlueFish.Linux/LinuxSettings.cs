@@ -27,6 +27,8 @@ internal sealed partial class LinuxPetWindow
     }
     void ApplySettings(PixelPoint? requestedPosition = null)
     {
+        Preferences.NormalizePublicInfo();
+        if (Preferences.ModelBackend == "api") Preferences.GpuEnabled = Preferences.StopModelOnBattery = false;
         speechVersion++; brain.Stop(); brain.UseGpu = Preferences.GpuEnabled; brain.UseExternalApi = Preferences.ModelBackend == "api"; brain.ExternalApiUrl = Preferences.LocalLlamaApiUrl;
         brain.RefreshModelAvailability();
         brain.StopOnBattery = Preferences.StopModelOnBattery; brain.WeatherRegionCode = Preferences.WeatherRegionCode;
@@ -75,7 +77,20 @@ internal sealed partial class LinuxPetWindow
         Action selectedPage = General;
         void Navigate(Action page) { selectedPage = page; page(); }
         void Title(string text) { disposeLogConsole?.Invoke(); disposeLogConsole = null; body.Children.Clear(); body.Children.Add(new TextBlock { Text = text, FontSize = 25, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 16) }); }
-        CheckBox Toggle(string text, bool value, Action<bool> set) { var box = new CheckBox { Content = text, IsChecked = value, Margin = new Thickness(0, 4) }; box.IsCheckedChanged += (_, _) => { set(box.IsChecked == true); Save(); }; body.Children.Add(box); return box; }
+        CheckBox Toggle(string text, bool value, Action<bool> set) {
+            var box = new CheckBox { Content = text, IsChecked = value, Margin = new Thickness(0, 4) };
+            box.IsCheckedChanged += (_, _) => {
+                bool enabled = box.IsChecked == true;
+                BigBlueFish.Diagnostics.DiagnosticLog.Write(BigBlueFish.Diagnostics.DiagnosticEvent.SettingsChanged, kind: "setting", state: "start", enabled: enabled);
+                try {
+                    set(enabled); Save();
+                    BigBlueFish.Diagnostics.DiagnosticLog.Write(BigBlueFish.Diagnostics.DiagnosticEvent.SettingsChanged, kind: "setting", state: "success", enabled: enabled);
+                } catch (Exception error) {
+                    BigBlueFish.Diagnostics.DiagnosticLog.Write(BigBlueFish.Diagnostics.DiagnosticEvent.SettingsChanged, kind: "setting", state: "failed", enabled: enabled, error: error);
+                }
+            };
+            body.Children.Add(box); return box;
+        }
         void Slider(string text, double value, double low, double high, Action<double> set, double tick = 1) {
             var label = new TextBlock { Text = text + "：" + value.ToString("0.##"), Margin = new Thickness(0, 12, 0, 0) };
             var slider = new Avalonia.Controls.Slider { Minimum = low, Maximum = high, Value = value, TickFrequency = tick, IsSnapToTickEnabled = true };
@@ -93,45 +108,70 @@ internal sealed partial class LinuxPetWindow
         }
         void Model() {
             Title("模型与信息"); Toggle("启用本地大模型", Preferences.ModelEnabled, value => { Preferences.ModelEnabled = value; ApplySettings(); });
+            TextBlock? modelApiLabel = null; TextBox? modelApiUrl = null; CheckBox? gpuToggle = null, batteryToggle = null; Button? modelInstallerButton = null;
+            void RefreshBackendControls() {
+                bool builtin = Preferences.ModelBackend != "api";
+                if (!builtin) Preferences.GpuEnabled = Preferences.StopModelOnBattery = false;
+                if (modelApiLabel != null) modelApiLabel.IsVisible = !builtin;
+                if (modelApiUrl != null) modelApiUrl.IsVisible = !builtin;
+                if (gpuToggle != null) { gpuToggle.IsEnabled = builtin; gpuToggle.IsChecked = Preferences.GpuEnabled; }
+                if (batteryToggle != null) { batteryToggle.IsEnabled = builtin; batteryToggle.IsChecked = Preferences.StopModelOnBattery; }
+                if (modelInstallerButton != null) modelInstallerButton.IsVisible = builtin;
+            }
             Select("本地模型调用方式", new[] { "内置模型（默认）", "本地 llama API" }, Preferences.ModelBackend == "api" ? 1 : 0,
-                value => { Preferences.ModelBackend = value == 1 ? "api" : "builtin"; ApplySettings(); });
-            body.Children.Add(new TextBlock { Text = "llama API 地址（OpenAI 兼容 /v1）", Margin = new Thickness(0, 4, 0, 2) });
-            var modelApiUrl = new TextBox { Text = Preferences.LocalLlamaApiUrl };
+                value => { Preferences.ModelBackend = value == 1 ? "api" : "builtin"; if (value == 1) Preferences.GpuEnabled = Preferences.StopModelOnBattery = false; ApplySettings(); RefreshBackendControls(); });
+            modelApiLabel = new TextBlock { Text = "llama API 地址（OpenAI 兼容 /v1）", Margin = new Thickness(0, 4, 0, 2), IsVisible = Preferences.ModelBackend == "api" }; body.Children.Add(modelApiLabel);
+            modelApiUrl = new TextBox { Text = Preferences.LocalLlamaApiUrl, IsVisible = Preferences.ModelBackend == "api" };
             modelApiUrl.LostFocus += (_, _) => { Preferences.LocalLlamaApiUrl = modelApiUrl.Text?.Trim() ?? ""; ApplySettings(); };
             body.Children.Add(modelApiUrl);
-            Toggle("使用 GPU 加速", Preferences.GpuEnabled, value => { Preferences.GpuEnabled = value; ApplySettings(); });
+            gpuToggle = Toggle("使用 GPU 加速", Preferences.GpuEnabled, value => { Preferences.GpuEnabled = value; ApplySettings(); });
             var deviceStatus = Paragraph(""); body.Children.Add(deviceStatus);
             var deviceClock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             void UpdateDevice() => deviceStatus.Text = "推理设备：" + brain.ExecutionDevice;
             deviceClock.Tick += (_, _) => UpdateDevice();
             deviceStatus.AttachedToVisualTree += (_, _) => { UpdateDevice(); deviceClock.Start(); };
             deviceStatus.DetachedFromVisualTree += (_, _) => deviceClock.Stop();
-            Toggle("笔记本离电时暂停模型", Preferences.StopModelOnBattery, value => { Preferences.StopModelOnBattery = value; ApplySettings(); });
+            batteryToggle = Toggle("笔记本离电时暂停模型", Preferences.StopModelOnBattery, value => { Preferences.StopModelOnBattery = value; ApplySettings(); });
+            RefreshBackendControls();
             CheckBox? weatherEnabled = null, newsEnabled = null;
-            var publicInfoToggle = Toggle("自动获取天气和科技新闻", Preferences.PublicInfo, value => { Preferences.PublicInfo = value; if (weatherEnabled != null) weatherEnabled.IsEnabled = value; if (newsEnabled != null) newsEnabled.IsEnabled = value; });
-            weatherEnabled = Toggle("自动获取天气", Preferences.WeatherEnabled, value => Preferences.WeatherEnabled = value);
-            newsEnabled = Toggle("自动获取科技新闻", Preferences.NewsEnabled, value => Preferences.NewsEnabled = value);
-            weatherEnabled.IsEnabled = newsEnabled.IsEnabled = Preferences.PublicInfo;
+            bool synchronizingPublicInfo = false;
+            int publicInfoIndex = body.Children.Count;
+            newsEnabled = Toggle("自动获取科技新闻", Preferences.NewsEnabled, value => { Preferences.NewsEnabled = value; if (!synchronizingPublicInfo) ApplySettings(); });
+            newsEnabled.IsEnabled = Preferences.PublicInfo;
             var source = Select("科技新闻来源", new[] { "内置 IT之家 RSS", "自定义 RSS 地址", "从文件读取", "从 API 读取" },
                 Preferences.NewsSource switch { "rss" => 1, "file" => 2, "api" => 3, _ => 0 }, value => { Preferences.NewsSource = value switch { 1 => "rss", 2 => "file", 3 => "api", _ => "builtin" }; brain.RefreshNews(); });
             body.Children.Add(new TextBlock { Text = "新闻源地址或文件路径（RSS/Atom 或 JSON）", Margin = new Thickness(0, 4, 0, 2) });
             var newsLocation = new TextBox { Text = Preferences.ActiveNewsLocation };
-            void RefreshNewsLocation() { newsLocation.Text = Preferences.ActiveNewsLocation; newsLocation.IsEnabled = Preferences.PublicInfo && Preferences.NewsEnabled && Preferences.NewsSource != "builtin"; source.IsEnabled = Preferences.PublicInfo && Preferences.NewsEnabled; }
+            void RefreshNewsLocation() { newsLocation.Text = Preferences.ActiveNewsLocation; newsLocation.IsEnabled = Preferences.PublicInfo && Preferences.NewsEnabled && Preferences.NewsSource != "builtin"; source.IsEnabled = Preferences.PublicInfo && Preferences.NewsEnabled; if (weatherEnabled != null) weatherEnabled.IsEnabled = Preferences.PublicInfo; }
+            var publicInfoToggle = Toggle("自动获取天气和科技新闻", Preferences.PublicInfo, value => {
+                Preferences.SetPublicInfo(value);
+                synchronizingPublicInfo = true;
+                try {
+                    if (weatherEnabled != null) weatherEnabled.IsChecked = value;
+                    if (newsEnabled != null) newsEnabled.IsChecked = value;
+                } finally { synchronizingPublicInfo = false; }
+                RefreshNewsLocation();
+                ApplySettings();
+            });
+            body.Children.Remove(publicInfoToggle);
+            body.Children.Insert(publicInfoIndex, publicInfoToggle);
             source.SelectionChanged += (_, _) => RefreshNewsLocation();
             publicInfoToggle.IsCheckedChanged += (_, _) => RefreshNewsLocation();
             newsEnabled.IsCheckedChanged += (_, _) => RefreshNewsLocation();
             newsLocation.LostFocus += (_, _) => { var value = newsLocation.Text?.Trim() ?? ""; switch (Preferences.NewsSource) { case "file": Preferences.NewsFilePath = value; break; case "api": Preferences.NewsApiUrl = value; break; case "rss": Preferences.NewsRssUrl = value; break; } brain.RefreshNews(); Save(); };
             body.Children.Add(newsLocation);
             RefreshNewsLocation();
-            Toggle("感知当前前台应用", Preferences.ForegroundEnabled, value => Preferences.ForegroundEnabled = value);
+            Toggle("感知当前前台应用", Preferences.ForegroundEnabled, value => { Preferences.ForegroundEnabled = value; ApplySettings(); });
 #if !COMPANION_SAFE
             body.Children.Add(Paragraph("本地吐字在本机读取屏幕；由 Agent 编写日常关心时，会向它提供前台截图。"));
 #endif
-            body.Children.Add(ActionButton(brain.ModelAvailable ? "管理本地模型" : "安装模型", async () => await InstallModel()));
-            var frequency = Select("自动说话间隔", CompanionPreferences.SpeechRanges.Select(r => $"{r.Min}–{r.Max} 分钟").ToArray(), Preferences.SpeechRangeIndex, value => { Preferences.SpeechMinMinutes = CompanionPreferences.SpeechRanges[value].Min; nextSpeech = DateTime.UtcNow.Add(Preferences.NextSpeechDelay(random)); });
+            modelInstallerButton = ActionButton(brain.ModelAvailable ? "管理本地模型" : "安装模型", async () => await InstallModel()); body.Children.Add(modelInstallerButton);
+            var frequency = Select("自动说话间隔", CompanionPreferences.SpeechIntervals.Select(r => r.Label).ToArray(), Preferences.SpeechIntervalIndex, value => { Preferences.SetSpeechInterval(CompanionPreferences.SpeechIntervals[value].Id); nextSpeech = DateTime.UtcNow.Add(Preferences.NextSpeechDelay(random)); });
             frequency.IsEnabled = !Puppet;
             body.Children.Add(Paragraph(Puppet ? "日常关心的触发时机已交给 Agent，此时说话间隔不可调节。关闭接管触发后恢复使用此设置。" : AgentDailyActive ? "鱼鱼按此间隔触发日常关心，由 Agent 编写吐字。" : "鱼鱼按此间隔触发日常关心，由本地模型编写吐字。"));
             body.Children.Add(new TextBlock { Text = "天气地区", Margin = new Thickness(0,12,0,4) });
+            weatherEnabled = Toggle("自动获取天气", Preferences.WeatherEnabled, value => { Preferences.WeatherEnabled = value; if (!synchronizingPublicInfo) ApplySettings(); });
+            weatherEnabled.IsEnabled = Preferences.PublicInfo;
             var regions = new StackPanel { Spacing = 8 }; body.Children.Add(regions);
             var country = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = CompanionRegions.Countries.Select(c => c.Name).ToArray() };
             regions.Children.Add(country);
@@ -179,5 +219,3 @@ internal sealed partial class LinuxPetWindow
         General(); settings.Show(); settings.Activate();
     }
 }
-
-

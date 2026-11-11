@@ -28,6 +28,10 @@ public static class CompanionEdgeLayout
         private bool updating;
         private bool closed;
         private bool queued;
+        private bool petPinned;
+        private bool popupPinned;
+        private DateTime nextDesktopCheck;
+        private DateTime nextPinAttempt;
         private readonly DependencyPropertyDescriptor visibility;
         public Follow(Window w)
         {
@@ -48,12 +52,14 @@ public static class CompanionEdgeLayout
             if (pet.IsLoaded)
             {
                 Create();
+                TryPinWindows();
             }
         }
 
         private void Loaded(object s, RoutedEventArgs e)
         {
             Create();
+            TryPinWindows();
             Update();
         }
 
@@ -126,6 +132,7 @@ public static class CompanionEdgeLayout
                     System.Threading.Interlocked.Exchange(ref bubbleHandle, handle.ToInt64());
                     SetWindowLongPtr(handle, -20, new IntPtr(((IntPtr)GetWindowLongPtr(handle, -20)).ToInt64() | 0x8000080));
                     HwndSource.FromHwnd(handle)?.AddHook(NoActivate);
+                    popupPinned = CompanionNative.PinWindowToAllVirtualDesktops(handle);
                 };
                 popup.DpiChanged += (object s, System.Windows.DpiChangedEventArgs e) =>
                 {
@@ -155,7 +162,7 @@ public static class CompanionEdgeLayout
             updating = true;
             try
             {
-                if (!pet.IsVisible || bubble.Visibility != Visibility.Visible)
+                if (!pet.IsVisible || !CompanionNative.IsOnCurrentVirtualDesktop(new WindowInteropHelper(pet).Handle) || bubble.Visibility != Visibility.Visible)
                 {
                     System.Threading.Volatile.Write(ref bubbleVisible, 0);
                     if (popup.IsVisible)
@@ -217,6 +224,41 @@ public static class CompanionEdgeLayout
             {
                 updating = false;
             }
+        }
+
+        public void Hide()
+        {
+            System.Threading.Volatile.Write(ref bubbleVisible, 0);
+            if (popup?.IsVisible == true) popup.Hide();
+        }
+
+        public void CheckDesktop()
+        {
+            if (closed || popup == null || DateTime.UtcNow < nextDesktopCheck) return;
+            nextDesktopCheck = DateTime.UtcNow.AddMilliseconds(300);
+            TryPinWindows();
+            IntPtr petHandle = new WindowInteropHelper(pet).Handle;
+            IntPtr popupHandle = new WindowInteropHelper(popup).Handle;
+            bool petCurrent = CompanionNative.IsOnCurrentVirtualDesktop(petHandle);
+            bool popupCurrent = popupHandle == IntPtr.Zero || CompanionNative.IsOnCurrentVirtualDesktop(popupHandle);
+            if (!petCurrent || !popupCurrent)
+            {
+                Hide();
+                if (!petCurrent) CompanionNative.MoveToCurrentVirtualDesktop(petHandle);
+                if (!popupCurrent) CompanionNative.MoveToCurrentVirtualDesktop(popupHandle);
+                return;
+            }
+            if (pet.IsVisible && bubble.Visibility == Visibility.Visible && !popup.IsVisible) Update();
+        }
+
+        private void TryPinWindows()
+        {
+            if (petPinned && (popup == null || popupPinned) || DateTime.UtcNow < nextPinAttempt) return;
+            nextPinAttempt = DateTime.UtcNow.AddSeconds(3);
+            if (!petPinned)
+                petPinned = CompanionNative.PinWindowToAllVirtualDesktops(new WindowInteropHelper(pet).Handle);
+            if (!popupPinned && popup != null)
+                popupPinned = CompanionNative.PinWindowToAllVirtualDesktops(new WindowInteropHelper(popup).Handle);
         }
 
         // popup.Left/Top lands on the wrong monitor with mixed scaling (dotnet/wpf#3105); place in screen pixels via the pet's transform.
@@ -294,6 +336,15 @@ public static class CompanionEdgeLayout
     }
 
     public static void Refresh(Window w) => followers.GetValue(w, x => new Follow(x)).Update();
+    public static void Hide(Window w)
+    {
+        if (followers.TryGetValue(w, out var follower)) follower.Hide();
+    }
+    public static void CheckVirtualDesktop(Window w)
+    {
+        if (followers.TryGetValue(w, out var follower)) follower.CheckDesktop();
+    }
+
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     private static extern nint GetWindowLongPtr(nint hwnd, int index);

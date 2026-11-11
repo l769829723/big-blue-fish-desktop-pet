@@ -91,6 +91,11 @@ internal static class Program
             ClickFixture(external);
             client.Data("update_settings", new { settings = new { AnimationIntervalSeconds = 60 } }); Pump(100);
             Check(pet.GetType().GetField("companionSettings", Access)!.GetValue(pet) == null && GetForegroundWindow() == external, "MCP updates while settings closed create no settings window and keep foreground");
+            var preferences = (CompanionPreferences)Read("preferences");
+            client.Data("update_settings", new { settings = new { PublicInfo = true } }); Pump(100);
+            Check(preferences.PublicInfo && preferences.WeatherEnabled && preferences.NewsEnabled, "MCP enables weather and news with their total switch");
+            client.Data("update_settings", new { settings = new { PublicInfo = false } }); Pump(100);
+            Check(!preferences.PublicInfo && !preferences.WeatherEnabled && !preferences.NewsEnabled, "MCP disables weather and news with their total switch");
             Invoke("OpenCompanionSettings"); Pump(150);
             var window = (Window)Read("companionSettings"); var handle = Handle(window);
             Descendants<Button>(window).Single(b => b.Content?.ToString() == "说话与天气").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump(100);

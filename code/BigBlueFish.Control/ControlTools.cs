@@ -21,13 +21,13 @@ public static class ControlTools
         new { type = "text", text = JsonSerializer.Serialize(metadata) },
         new { type = "image", mimeType = dataUrl[5..dataUrl.IndexOf(';')], data = dataUrl[(dataUrl.IndexOf(',') + 1)..] } } };
     public static readonly string[] SettingNames = ["ModelEnabled", "GpuEnabled", "PublicInfo", "ForegroundEnabled", "StopModelOnBattery",
-        "HideOnFullscreen", "CheckUpdatesOnStartup", "WeatherRegionCode", "Scale", "BubbleScale", "SpeechMinMinutes",
+        "HideOnFullscreen", "CheckUpdatesOnStartup", "WeatherRegionCode", "Scale", "BubbleScale", "SpeechMinMinutes", "SpeechInterval",
         "BubbleDurationIndex", "AnimationIntervalSeconds", "BreakfastHour", "LunchHour", "DinnerHour", "Left", "Top", "LastBrushDate", "StartupEnabled", "PuppetMode", "AgentDailySpeech", "AgentRespondToClick", "AgentRespondToDrag"];
     private const string SettingsInput = """
         {"settings":{"type":"object","additionalProperties":false,"description":"按需提供字段；省略的字段保留。字段名区分大小写。AgentEnabled 只读。成功后读取实际值；位置可能因工作区限制调整。","properties":{
           "ModelEnabled":{"type":"boolean","description":"启用内置模型；不限制外部 say。"},
           "GpuEnabled":{"type":"boolean","description":"本地推理使用 GPU；切换会停止当前模型任务。"},
-          "PublicInfo":{"type":"boolean","description":"内置天气和科技新闻。"},
+          "PublicInfo":{"type":"boolean","description":"天气和科技新闻总开关；修改时会同步 WeatherEnabled 和 NewsEnabled。"},
           "ForegroundEnabled":{"type":"boolean","description":"内置模型是否读屏；不是 MCP 截图的权限开关。"},
           "StopModelOnBattery":{"type":"boolean","description":"离电时暂停并卸载内置模型；不限制外部文字。"},
           "HideOnFullscreen":{"type":"boolean","description":"外部全屏时隐藏桌宠；不限制 MCP 截图。"},
@@ -36,6 +36,7 @@ public static class ControlTools
           "Scale":{"type":"number","minimum":0.5,"maximum":2,"description":"角色大小倍率；1为100%。"},
           "BubbleScale":{"type":"number","minimum":0.5,"maximum":2,"description":"独立气泡大小倍率；不改变角色大小。"},
           "SpeechMinMinutes":{"type":"integer","enum":[2,3,5,10,15,20],"description":"说话区间档位：2对应2–3分钟，3对应3–5，5对应5–8，10对应10–16，15对应15–23，20对应20–30；不是任意分钟数。"},
+          "SpeechInterval":{"type":"string","enum":["10s","30s","2m","3m","5m","10m","15m","20m"],"description":"自动说话区间档位；10s对应10–30秒，30s对应30–60秒，其余为分钟区间。优先于旧字段SpeechMinMinutes。"},
           "BubbleDurationIndex":{"type":"integer","minimum":0,"maximum":7,"description":"索引0–7依次为5、10、15、30、60、120、180秒，以及直到下一句。"},
           "AnimationIntervalSeconds":{"type":"integer","minimum":30,"maximum":300,"description":"普通随机动作事件间隔，单位秒，默认40；等当前片段结束再切换。不是帧率、播放速度或说话间隔。关心触发与动作接管暂停该调度。"},
           "BreakfastHour":{"type":"integer","minimum":0,"maximum":23,"description":"本地时间的早餐小时。"},

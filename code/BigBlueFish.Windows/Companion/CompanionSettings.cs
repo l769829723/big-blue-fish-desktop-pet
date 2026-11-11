@@ -130,8 +130,15 @@ public partial class MainWindow
             };
             c.Click += (_, _) =>
             {
-                change(c.IsChecked == true);
-                SaveCompanion();
+                bool enabled = c.IsChecked == true;
+                BigBlueFish.Diagnostics.DiagnosticLog.Write(BigBlueFish.Diagnostics.DiagnosticEvent.SettingsChanged, kind: "setting", state: "start", enabled: enabled);
+                try
+                {
+                    change(enabled);
+                    BigBlueFish.Diagnostics.DiagnosticLog.Write(BigBlueFish.Diagnostics.DiagnosticEvent.SettingsChanged, kind: "setting", state: "success", enabled: enabled);
+                    SaveCompanion();
+                }
+                catch (Exception error) { BigBlueFish.Diagnostics.DiagnosticLog.Write(BigBlueFish.Diagnostics.DiagnosticEvent.SettingsChanged, kind: "setting", state: "failed", enabled: enabled, error: error); ModernUI.Error(w, "设置未能应用", error); }
             };
             p.Children.Add(c);
             return c;
@@ -151,23 +158,46 @@ public partial class MainWindow
         p.Children.Add(new TextBlock { Text = "本地模型调用方式", Margin = new Thickness(0, 8, 0, 4) });
         var modelBackend = new ComboBox { ItemsSource = new[] { "内置模型（默认）", "本地 llama API" }, SelectedIndex = preferences.ModelBackend == "api" ? 1 : 0 };
         p.Children.Add(modelBackend);
-        p.Children.Add(new TextBlock { Text = "llama API 地址（OpenAI 兼容 /v1）", Margin = new Thickness(0, 8, 0, 4) });
+        var modelApiLabel = new TextBlock { Text = "llama API 地址（OpenAI 兼容 /v1）", Margin = new Thickness(0, 8, 0, 4) };
+        p.Children.Add(modelApiLabel);
         var modelApiUrl = new TextBox { Text = preferences.LocalLlamaApiUrl, MinWidth = 300 };
         p.Children.Add(modelApiUrl);
-        modelBackend.SelectionChanged += (_, _) => { preferences.ModelBackend = modelBackend.SelectedIndex == 1 ? "api" : "builtin"; brain.UseExternalApi = preferences.ModelBackend == "api"; brain.RefreshModelAvailability(); brain.Stop(); nextWarmup = DateTime.MinValue; SaveCompanion(); };
+        CheckBox? gpuToggle = null, batteryToggle = null;
+        Button? installModel = null;
+        void RefreshBackendControls()
+        {
+            bool builtin = preferences.ModelBackend != "api";
+            if (!builtin) preferences.GpuEnabled = preferences.StopModelOnBattery = false;
+            modelApiLabel.Visibility = builtin ? Visibility.Collapsed : Visibility.Visible;
+            modelApiUrl.Visibility = builtin ? Visibility.Collapsed : Visibility.Visible;
+            if (gpuToggle != null) { gpuToggle.IsEnabled = builtin; gpuToggle.IsChecked = preferences.GpuEnabled; }
+            if (batteryToggle != null) { batteryToggle.IsEnabled = builtin; batteryToggle.IsChecked = preferences.StopModelOnBattery; }
+            if (installModel != null) installModel.Visibility = builtin ? Visibility.Visible : Visibility.Collapsed;
+            modelBackend.SelectedIndex = builtin ? 0 : 1;
+        }
+        modelBackend.SelectionChanged += (_, _) =>
+        {
+            if (modelBackend.SelectedIndex < 0) return;
+            InvalidateSpeechRequests(true);
+            preferences.ModelBackend = modelBackend.SelectedIndex == 1 ? "api" : "builtin";
+            if (preferences.ModelBackend == "api") preferences.GpuEnabled = preferences.StopModelOnBattery = false;
+            brain.UseExternalApi = preferences.ModelBackend == "api"; brain.UseGpu = preferences.GpuEnabled; brain.StopOnBattery = preferences.StopModelOnBattery;
+            brain.RefreshModelAvailability(); nextWarmup = DateTime.MinValue; RefreshBackendControls(); SaveCompanion();
+        };
         modelApiUrl.LostKeyboardFocus += (_, _) => { preferences.LocalLlamaApiUrl = modelApiUrl.Text.Trim(); brain.ExternalApiUrl = preferences.LocalLlamaApiUrl; SaveCompanion(); };
-        Toggle("拔电时暂停并卸载模型", preferences.StopModelOnBattery, v =>
+        batteryToggle = Toggle("拔电时暂停并卸载模型", preferences.StopModelOnBattery, v =>
         {
             preferences.StopModelOnBattery = v;
             ApplyCompanionPowerPolicy();
         });
-        Toggle("使用显卡加速（关闭则使用 CPU）", preferences.GpuEnabled, v =>
+        gpuToggle = Toggle("使用显卡加速（关闭则使用 CPU）", preferences.GpuEnabled, v =>
         {
             preferences.GpuEnabled = v;
             InvalidateSpeechRequests(true);
             brain.UseGpu = v;
             nextWarmup = DateTime.MinValue;
         });
+        RefreshBackendControls();
         p = pages[0];
         Toggle("全屏时自动隐藏桌宠", preferences.HideOnFullscreen, v =>
         {
@@ -178,15 +208,13 @@ public partial class MainWindow
         Toggle("启动时检查更新", preferences.CheckUpdatesOnStartup, v => preferences.CheckUpdatesOnStartup = v);
         p = pages[1];
         CheckBox? weatherEnabled = null, newsEnabled = null;
-        var publicInfoEnabled = Toggle("自动获取天气和科技新闻", preferences.PublicInfo, v =>
+        int publicInfoIndex = p.Children.Count;
+        newsEnabled = Toggle("自动获取科技新闻", preferences.NewsEnabled, v =>
         {
-            preferences.PublicInfo = v;
-            if (weatherEnabled != null) weatherEnabled.IsEnabled = v;
-            if (newsEnabled != null) newsEnabled.IsEnabled = v;
+            preferences.NewsEnabled = v;
+            if (!v) InvalidateSpeechRequests();
         });
-        weatherEnabled = Toggle("自动获取天气", preferences.WeatherEnabled, v => preferences.WeatherEnabled = v);
-        newsEnabled = Toggle("自动获取科技新闻", preferences.NewsEnabled, v => preferences.NewsEnabled = v);
-        weatherEnabled.IsEnabled = newsEnabled.IsEnabled = preferences.PublicInfo;
+        newsEnabled.IsEnabled = preferences.PublicInfo;
         p.Children.Add(new TextBlock { Text = "科技新闻来源", Margin = new Thickness(0, 10, 0, 4) });
         var newsSource = new ComboBox { ItemsSource = new[] { "内置 IT之家 RSS", "自定义 RSS 地址", "从文件读取", "从 API 读取" }, SelectedIndex = preferences.NewsSource switch { "rss" => 1, "file" => 2, "api" => 3, _ => 0 }, HorizontalAlignment = HorizontalAlignment.Stretch };
         p.Children.Add(newsSource);
@@ -210,18 +238,40 @@ public partial class MainWindow
             newsLocation.Text = CurrentNewsLocation();
             newsLocation.IsEnabled = preferences.PublicInfo && preferences.NewsEnabled && preferences.NewsSource != "builtin";
             newsSource.IsEnabled = preferences.PublicInfo && preferences.NewsEnabled;
+            if (weatherEnabled != null) weatherEnabled.IsEnabled = preferences.PublicInfo;
         }
+        var publicInfoEnabled = Toggle("自动获取天气和科技新闻", preferences.PublicInfo, v =>
+        {
+            preferences.SetPublicInfo(v);
+            InvalidateSpeechRequests();
+            if (weatherEnabled != null) weatherEnabled.IsChecked = v;
+            if (newsEnabled != null) newsEnabled.IsChecked = v;
+            RefreshNewsLocation();
+        });
+        p.Children.Remove(publicInfoEnabled);
+        p.Children.Insert(publicInfoIndex, publicInfoEnabled);
         RefreshNewsLocation();
         newsSource.SelectionChanged += (_, _) => { StoreNewsLocation(newsLocation.Text.Trim()); preferences.NewsSource = newsSource.SelectedIndex switch { 1 => "rss", 2 => "file", 3 => "api", _ => "builtin" }; brain.RefreshNews(); RefreshNewsLocation(); SaveCompanion(); };
         newsLocation.LostKeyboardFocus += (_, _) => { StoreNewsLocation(newsLocation.Text.Trim()); brain.RefreshNews(); SaveCompanion(); };
         publicInfoEnabled.Click += (_, _) => RefreshNewsLocation();
         newsEnabled.Click += (_, _) => RefreshNewsLocation();
-        Toggle("感知当前应用", preferences.ForegroundEnabled, v => preferences.ForegroundEnabled = v);
+        Toggle("感知当前应用", preferences.ForegroundEnabled, v =>
+        {
+            preferences.ForegroundEnabled = v;
+            InvalidateSpeechRequests();
+        });
 #if !COMPANION_SAFE
         p.Children.Add(new TextBlock { Text = "本地吐字在本机读取屏幕；由 Agent 编写日常关心时，会向它提供前台截图。", FontSize = 11,
             Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 4) });
 #endif
+        p.Children.Add(new TextBlock { Text = "天气地点与自动更新", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 16, 0, 4) });
         AddCompanionRegionSelectors(p);
+        weatherEnabled = Toggle("自动获取天气", preferences.WeatherEnabled, v =>
+        {
+            preferences.WeatherEnabled = v;
+            if (!v) InvalidateSpeechRequests();
+        });
+        weatherEnabled.IsEnabled = preferences.PublicInfo;
         p = pages[0];
         var label = new TextBlock
         {
@@ -297,13 +347,13 @@ public partial class MainWindow
         {
             Margin = new Thickness(0, 8, 0, 8)
         };
-        foreach (var range in CompanionPreferences.SpeechRanges)
-            freq.Items.Add($"说话间隔：{range.Min}–{range.Max} 分钟");
-        freq.SelectedIndex = preferences.SpeechRangeIndex;
+        foreach (var interval in CompanionPreferences.SpeechIntervals)
+            freq.Items.Add("说话间隔：" + interval.Label);
+        freq.SelectedIndex = preferences.SpeechIntervalIndex;
         freq.SelectionChanged += (_, _) =>
         {
             if (freq.SelectedIndex < 0) return;
-            preferences.SpeechMinMinutes = CompanionPreferences.SpeechRanges[freq.SelectedIndex].Min;
+            preferences.SetSpeechInterval(CompanionPreferences.SpeechIntervals[freq.SelectedIndex].Id);
             nextSpeech = DateTime.UtcNow.Add(preferences.NextSpeechDelay(companionRandom));
             SaveCompanion();
         };
@@ -340,7 +390,7 @@ public partial class MainWindow
         };
         p.Children.Add(dwell);
         p = pages[2];
-        var installModel = new Button { Content = "安装模型", Margin = new Thickness(0, 8, 0, 8) };
+        installModel = new Button { Content = "安装模型", Margin = new Thickness(0, 8, 0, 8) };
         installModel.Click += (_, _) => OpenModelInstaller();
         p.Children.Add(installModel);
         var status = new TextBlock

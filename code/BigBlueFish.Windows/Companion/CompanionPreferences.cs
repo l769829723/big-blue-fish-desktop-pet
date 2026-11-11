@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -13,6 +14,16 @@ internal sealed class CompanionPreferences
     public bool PublicInfo { get; set; } = true;
     public bool WeatherEnabled { get; set; } = true;
     public bool NewsEnabled { get; set; } = true;
+    internal void SetPublicInfo(bool enabled)
+    {
+        PublicInfo = enabled;
+        WeatherEnabled = NewsEnabled = enabled;
+    }
+
+    internal void NormalizePublicInfo()
+    {
+        if (!PublicInfo) WeatherEnabled = NewsEnabled = false;
+    }
     public string NewsSource { get; set; } = "builtin";
     public string NewsRssUrl { get; set; } = "https://www.ithome.com/rss/";
     public string NewsFilePath { get; set; } = "";
@@ -41,6 +52,18 @@ internal sealed class CompanionPreferences
     public double Scale { get; set; } = 1;
     public double BubbleScale { get; set; } = 1;
     public int SpeechMinMinutes { get; set; } = 10;
+    public string SpeechInterval { get; set; } = "10m";
+    internal static readonly (string Id, string Label)[] SpeechIntervals =
+    [ ("10s", "10–30 秒"), ("30s", "30–60 秒"), ("2m", "2–3 分钟"), ("3m", "3–5 分钟"), ("5m", "5–8 分钟"), ("10m", "10–16 分钟"), ("15m", "15–23 分钟"), ("20m", "20–30 分钟") ];
+    internal string EffectiveSpeechInterval => SpeechInterval == "10m" && NormalizeSpeechMinimum(SpeechMinMinutes) != 10
+        ? NormalizeSpeechMinimum(SpeechMinMinutes) switch { 2 => "2m", 3 => "3m", 5 => "5m", 15 => "15m", 20 => "20m", _ => "10m" }
+        : SpeechInterval;
+    internal int SpeechIntervalIndex => Math.Max(0, Array.FindIndex(SpeechIntervals, x => x.Id == EffectiveSpeechInterval));
+    internal void SetSpeechInterval(string id)
+    {
+        SpeechInterval = SpeechIntervals.Any(x => x.Id == id) ? id : "10m";
+        SpeechMinMinutes = SpeechInterval switch { "2m" => 2, "3m" => 3, "5m" => 5, "15m" => 15, "20m" => 20, _ => 10 };
+    }
     internal static readonly (int Min, int Max)[] SpeechRanges = [(2, 3), (3, 5), (5, 8), (10, 16), (15, 23), (20, 30)];
     internal int SpeechRangeIndex => Array.FindIndex(SpeechRanges, r => r.Min == NormalizeSpeechMinimum(SpeechMinMinutes));
     internal static int NormalizeSpeechMinimum(int value) => value switch
@@ -55,7 +78,10 @@ internal sealed class CompanionPreferences
     };
     internal TimeSpan NextSpeechDelay(Random random)
     {
-        var range = SpeechRanges[SpeechRangeIndex];
+        string interval = EffectiveSpeechInterval;
+        if (interval == "10s") return TimeSpan.FromSeconds(10 + random.NextDouble() * 20);
+        if (interval == "30s") return TimeSpan.FromSeconds(30 + random.NextDouble() * 30);
+        var range = SpeechRanges[Array.FindIndex(SpeechRanges, r => r.Min == (interval switch { "2m" => 2, "3m" => 3, "5m" => 5, "15m" => 15, "20m" => 20, _ => 10 }))];
         return TimeSpan.FromMinutes(range.Min + random.NextDouble() * (range.Max - range.Min));
     }
     public int BubbleDurationIndex { get; set; } = 3;
@@ -104,6 +130,16 @@ internal sealed class CompanionPreferences
                 var s = JsonSerializer.Deserialize<CompanionPreferences>(File.ReadAllText(p));
                 if (s != null)
                 {
+                    using (var json = JsonDocument.Parse(File.ReadAllText(p)))
+                    {
+                        if (!json.RootElement.TryGetProperty("SpeechInterval", out _))
+                            s.SpeechInterval = NormalizeSpeechMinimum(s.SpeechMinMinutes) switch { 2 => "2m", 3 => "3m", 5 => "5m", 10 => "10m", 15 => "15m", _ => "20m" };
+                    }
+                    if (s.SpeechInterval is not ("10s" or "30s" or "2m" or "3m" or "5m" or "10m" or "15m" or "20m")) s.SpeechInterval = "10m";
+                    s.SetSpeechInterval(s.SpeechInterval);
+                    s.NormalizePublicInfo();
+                    s.ModelBackend = s.ModelBackend == "api" ? "api" : "builtin";
+                    if (s.ModelBackend == "api") s.GpuEnabled = s.StopModelOnBattery = false;
                     s.NewsSource = s.NewsSource is "file" or "api" or "rss" ? s.NewsSource : "builtin";
                     if (string.IsNullOrWhiteSpace(s.NewsRssUrl)) s.NewsRssUrl = s.NewsSource == "rss" && !string.IsNullOrWhiteSpace(s.NewsLocation) ? s.NewsLocation : "https://www.ithome.com/rss/";
                     if (string.IsNullOrWhiteSpace(s.NewsFilePath) && s.NewsSource == "file") s.NewsFilePath = s.NewsLocation;
@@ -124,7 +160,6 @@ internal sealed class CompanionPreferences
                     s.BreakfastHour = Math.Clamp(s.BreakfastHour, 0, 23);
                     s.LunchHour = Math.Clamp(s.LunchHour, 0, 23);
                     s.DinnerHour = Math.Clamp(s.DinnerHour, 0, 23);
-                    s.SpeechMinMinutes = NormalizeSpeechMinimum(s.SpeechMinMinutes);
                     s.BubbleDurationIndex = Math.Clamp(s.BubbleDurationIndex, 0, BubbleDurations.Length - 1);
                     s.WeatherRegionCode = CompanionRegions.District(s.WeatherRegionCode).Code;
                     return s;
@@ -139,6 +174,7 @@ internal sealed class CompanionPreferences
 
     public void Save()
     {
+        NormalizePublicInfo();
         var t = "preferences.json.tmp";
         File.WriteAllText(t, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
         if (File.Exists("preferences.json"))

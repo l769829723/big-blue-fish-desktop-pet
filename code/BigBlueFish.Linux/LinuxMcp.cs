@@ -157,6 +157,7 @@ internal sealed partial class LinuxPetWindow
                 "Scale" or "BubbleScale" => Range(.5, 2), "AnimationIntervalSeconds" => Range(30, 300),
                 "BreakfastHour" or "LunchHour" or "DinnerHour" => Range(0, 23), "BubbleDurationIndex" => Range(0, 7),
                 "SpeechMinMinutes" => item.Value is int minutes && CompanionPreferences.SpeechRanges.Any(r => r.Min == minutes),
+                "SpeechInterval" => item.Value is string interval && CompanionPreferences.SpeechIntervals.Any(r => r.Id == interval),
                 "WeatherRegionCode" => item.Value is string region && CompanionRegions.District(region).Code == region,
                 "LastBrushDate" => item.Value == null || item.Value is string date && DateTime.TryParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _),
                 "Left" or "Top" => item.Value == null || Range(-1000000, 1000000), _ => item.Value is bool };
@@ -168,6 +169,10 @@ internal sealed partial class LinuxPetWindow
         foreach (var item in values)
             if (item.Key == "StartupEnabled") SetStartup((bool)item.Value!);
             else if (item.Key != "PuppetMode") typeof(CompanionPreferences).GetProperty(item.Key)!.SetValue(Preferences, item.Value);
+        if (values.TryGetValue("PublicInfo", out var publicInfo)) Preferences.SetPublicInfo((bool)publicInfo!);
+        else Preferences.NormalizePublicInfo();
+        if (values.TryGetValue("SpeechInterval", out var speechInterval)) Preferences.SetSpeechInterval((string)speechInterval!);
+        else if (values.TryGetValue("SpeechMinMinutes", out var speechMinutes)) Preferences.SetSpeechInterval(speechMinutes switch { 2 => "2m", 3 => "3m", 5 => "5m", 15 => "15m", 20 => "20m", _ => "10m" });
         if (values.TryGetValue("PuppetMode", out puppet)) SetPuppet((bool)puppet!);
         var position = Position;
         if (values.TryGetValue("Left", out var left) && left is double x) position = new((int)x, position.Y);

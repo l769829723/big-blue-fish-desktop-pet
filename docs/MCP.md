@@ -20,14 +20,15 @@
 | --- | --- | --- |
 | ModelEnabled | bool | 启用内置模型 |
 | GpuEnabled | bool | 本地推理启用GPU |
-| PublicInfo | bool | 内置天气、新闻 |
+| PublicInfo | bool | 天气与新闻总开关；修改时同步关闭或开启天气、新闻子选项 |
 | ForegroundEnabled | bool | 内置模型读屏及 Agent 日常关心附图；不控制显式截图工具 |
 | StopModelOnBattery | bool | 离电暂停并卸载内置模型 |
 | HideOnFullscreen | bool | 外部全屏时自动隐藏 |
 | CheckUpdatesOnStartup | bool | 启动检查更新 |
 | WeatherRegionCode | 字符串 | 内置叶级地点代码：中国六位区县代码、美国 US-加五位县 FIPS，其他地点为国家代码-GeoNames 城市 ID，例如340104、US-06037、JP-1850147 |
 | Scale / BubbleScale | 0.5–2的有限数 | 角色／独立气泡倍率 |
-| SpeechMinMinutes | 2、3、5、10、15、20之一 | 分别对应2–3、3–5、5–8、10–16、15–23、20–30分钟 |
+| SpeechInterval | 10s、30s、2m、3m、5m、10m、15m、20m之一 | 分别对应10–30秒、30–60秒、2–3、3–5、5–8、10–16、15–23、20–30分钟 |
+| SpeechMinMinutes | 2、3、5、10、15、20之一 | 兼容旧客户端；写入后同步成对应分钟档 |
 | BubbleDurationIndex | 0–7整数 | 5、10、15、30、60、120、180秒，或直到下一句 |
 | AnimationIntervalSeconds | 30–300整数 | 普通随机动作事件等待秒数，等完整片段结束再切换 |
 | BreakfastHour / LunchHour / DinnerHour | 0–23整数 | 本地时间餐时中心小时 |
@@ -39,7 +40,7 @@
 | AgentRespondToClick | bool | 点击事件主动发起ACP轮次，默认关 |
 | AgentRespondToDrag | bool | 拖动结束主动发起ACP轮次，默认关 |
 
-更新设置不打开、激活或置顶设置窗口。窗口已打开时保留页面、滚动、位置和窗口状态并刷新。修改GPU、模型、地区等按现有逻辑取消或重排对应任务；Linux每次应用设置都会停止本地模型并重排计时。开启关心触发与动作接管的确认异步显示，等待时角色仍可拖动；取消则不应用该补丁。IO或系统启动项写入失败可能发生在内存设置已变更后，调用方读取状态再决定下一步。
+更新设置不打开、激活或置顶设置窗口。窗口已打开时保留页面、滚动、位置和窗口状态并刷新。PublicInfo总开关同步 WeatherEnabled 与 NewsEnabled；关闭时子选项不能保持启用。修改GPU、模型、地区等按现有逻辑取消或重排对应任务；Linux每次应用设置都会停止本地模型并重排计时。开启关心触发与动作接管的确认异步显示，等待时角色仍可拖动；取消则不应用该补丁。IO或系统启动项写入失败可能发生在内存设置已变更后，调用方读取状态再决定下一步。
 
 ## 截图、动作与文字
 

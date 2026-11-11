@@ -136,7 +136,7 @@ internal sealed class InstallerForm : ModernWindow
             status.Text = "安装完成，正在启动蓝色大肥鱼…"; progress.Value = 100;
             if (!applicationStarted) Launch(target);
             if (updating && cleanupPackage != null && File.Exists(cleanupPackage))
-                MoveFileEx(cleanupPackage, null, 4);
+                CleanupPackageAfterExit(cleanupPackage);
             working = false; Close();
         }
         catch (Exception error)
@@ -158,6 +158,22 @@ internal sealed class InstallerForm : ModernWindow
 
     [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
     private static extern bool MoveFileEx(string existing, string? replacement, int flags);
+
+    private static void CleanupPackageAfterExit(string package)
+    {
+        // Setup cannot remove its own running image. A detached helper waits
+        // for setup to exit, then deletes the downloaded package immediately.
+        string escaped = package.Replace("'", "''");
+        string script = "$id=" + Environment.ProcessId + "; Wait-Process -Id $id -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '" + escaped + "' -Force -ErrorAction SilentlyContinue";
+        try
+        {
+            var start = new ProcessStartInfo("powershell.exe") { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden };
+            start.ArgumentList.Add("-NoProfile"); start.ArgumentList.Add("-NonInteractive"); start.ArgumentList.Add("-EncodedCommand");
+            start.ArgumentList.Add(Convert.ToBase64String(Encoding.Unicode.GetBytes(script)));
+            Process.Start(start);
+        }
+        catch { MoveFileEx(package, null, 4); }
+    }
 
     private static Process Launch(string target) => Process.Start(new ProcessStartInfo(Path.Combine(target, "BigBlueFish.exe"))
         { WorkingDirectory = target, UseShellExecute = true }) ?? throw new IOException("未能启动蓝色大肥鱼。");

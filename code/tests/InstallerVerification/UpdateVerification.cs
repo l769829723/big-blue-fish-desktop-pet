@@ -19,9 +19,11 @@ internal static class UpdateVerification
     {
         setup = Path.GetFullPath(setup); oldSetup = Path.GetFullPath(oldSetup); target = InstallationLifecycle.ValidateDirectory(target);
         if (Directory.Exists(target)) throw new IOException("Update integration fixture requires a fresh directory.");
+        string cleanupPackage = Path.Combine(Path.GetTempPath(), "BigBlueFish.update-cleanup-" + Guid.NewGuid().ToString("N") + ".exe");
         Process? previous = null; Process? updater = null; Process? current = null;
         try
         {
+            File.Copy(setup, cleanupPackage);
             Directory.CreateDirectory(target);
             using (var oldStream = InstallerForm.OpenPayload(oldSetup))
             using (var archive = new ZipArchive(oldStream, ZipArchiveMode.Read))
@@ -41,6 +43,7 @@ internal static class UpdateVerification
             Wait(() => File.Exists(Path.Combine(target, "ready.status")), 20, "real 0.4.2 self-contained installation starts before update");
             var run = new ProcessStartInfo(setup) { UseShellExecute = false, WorkingDirectory = target };
             run.ArgumentList.Add("--update"); run.ArgumentList.Add(target); run.ArgumentList.Add("--wait-pid"); run.ArgumentList.Add(previous.Id.ToString());
+            run.ArgumentList.Add("--cleanup-package"); run.ArgumentList.Add(cleanupPackage);
             run.Environment["DOTNET_ROOT"] = Path.Combine(target, "absent-system-runtime"); run.Environment["DOTNET_MULTILEVEL_LOOKUP"] = "0";
             updater = Process.Start(run)!;
             Thread.Sleep(1000);
@@ -50,6 +53,7 @@ internal static class UpdateVerification
             var preferences = File.ReadAllBytes(Path.Combine(target, "preferences.json"));
             var selection = File.ReadAllBytes(Path.Combine(target, "model-selection.json"));
             Check(updater.WaitForExit(45000) && updater.ExitCode == 0, "actual self-contained WPF updater finishes and exits");
+            Wait(() => !File.Exists(cleanupPackage), 15, "downloaded installer package is removed after setup exits");
             current = FindApp(target);
             Check(current != null && !current.HasExited && File.Exists(Path.Combine(target, "ready.status")), "actual update restarts the new production app successfully");
             Check(FileVersionInfo.GetVersionInfo(Path.Combine(target, "BigBlueFish.exe")).ProductVersion == "0.5.0", "running update files have 0.5.0 product version");
@@ -82,6 +86,7 @@ internal static class UpdateVerification
                 if (process != null) { try { if (!process.HasExited) { process.Kill(true); process.WaitForExit(5000); } } catch { } process.Dispose(); }
             using var remaining = FindApp(target); if (remaining != null) { remaining.Kill(true); remaining.WaitForExit(5000); }
             if (File.Exists(Path.Combine(target, "uninstall-info.json"))) InstallationLifecycle.Uninstall(target, true);
+            if (File.Exists(cleanupPackage)) File.Delete(cleanupPackage);
         }
     }
 }

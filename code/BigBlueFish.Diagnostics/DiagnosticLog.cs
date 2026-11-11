@@ -37,7 +37,7 @@ public static class DiagnosticLog
     static long sequence, revision;
     static string appDirectory = Path.GetFullPath(AppContext.BaseDirectory), dataDirectory = Path.GetFullPath(Environment.CurrentDirectory);
     static StreamWriter? sessionJournal;
-    static readonly HashSet<string> tokens = new(("start success failed cancelled blocked ready stopped hidden visible fullscreen user automatic test weather local agent "
+    static readonly HashSet<string> tokens = new(("start success failed cancelled blocked ready stopped hidden visible fullscreen user automatic test weather local agent setting "
         + "persona news screen image ocr text GPU CPU cache cold warm startup exit idle Event Idle Click Drag Greeting Daily Startup Exit External PuppetIdle "
         + "Outbound Return BetweenMoves click drag_start drag_end user_message daily_care speech_test weather_request wakeup start_care connect reconnect new_conversation "
         + "set_configuration authentication permission read write model mode thought_level other unavailable unsupported empty expired changed enabled disabled "
@@ -49,7 +49,7 @@ public static class DiagnosticLog
     static readonly Dictionary<string, string> previousSettings = new();
     static readonly HashSet<string> settingNames = new(("ModelEnabled ModelBackend LocalLlamaApiUrl GpuEnabled PublicInfo WeatherEnabled NewsEnabled ForegroundEnabled StopModelOnBattery HideOnFullscreen CheckUpdatesOnStartup "
         + "NewsSource NewsRssUrl NewsFilePath NewsApiUrl "
-        + "AgentEnabled AgentHarnessId AgentDailySpeech PuppetMode AgentRespondToClick AgentRespondToDrag WeatherRegionCode Scale BubbleScale SpeechMinMinutes BubbleDurationIndex "
+        + "AgentEnabled AgentHarnessId AgentDailySpeech PuppetMode AgentRespondToClick AgentRespondToDrag WeatherRegionCode Scale BubbleScale SpeechMinMinutes SpeechInterval BubbleDurationIndex "
         + "AnimationIntervalSeconds BreakfastHour LunchHour DinnerHour LastBrushDate Left Top StartupEnabled "
         + "McpEnabled McpDoubleClickChat McpWakeEnabled McpWakeOnText McpWakeOnClick McpWakeOnDrag AgentWorkspaceId").Split(' '), StringComparer.Ordinal);
     static HashSet<string> LoadActions()

@@ -253,6 +253,7 @@ public partial class MainWindow
                 "BreakfastHour" or "LunchHour" or "DinnerHour" => Range(0, 23),
                 "BubbleDurationIndex" => Range(0, 7),
                 "SpeechMinMinutes" => item.Value is int minutes && CompanionPreferences.SpeechRanges.Any(r => r.Min == minutes),
+                "SpeechInterval" => item.Value is string interval && CompanionPreferences.SpeechIntervals.Any(r => r.Id == interval),
                 "WeatherRegionCode" => item.Value is string region && CompanionRegions.District(region).Code == region,
                 "LastBrushDate" => item.Value == null || item.Value is string date && DateTime.TryParseExact(date, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _),
                 "Left" or "Top" => item.Value == null || Range(-1000000, 1000000),
@@ -265,21 +266,28 @@ public partial class MainWindow
         if (!preferences.McpEnabled) throw new OperationCanceledException();
         bool oldGpu = preferences.GpuEnabled, oldModel = preferences.ModelEnabled;
         string oldRegion = preferences.WeatherRegionCode;
+        bool oldPublicInfo = preferences.PublicInfo, oldWeather = preferences.WeatherEnabled, oldNews = preferences.NewsEnabled, oldForeground = preferences.ForegroundEnabled;
         foreach (var item in values)
         {
             if (item.Key == "StartupEnabled") SetCompanionStartup((bool)item.Value!);
             else if (item.Key != "PuppetMode") typeof(CompanionPreferences).GetProperty(item.Key)!.SetValue(preferences, item.Value);
         }
+        if (values.TryGetValue("PublicInfo", out var publicInfo)) preferences.SetPublicInfo((bool)publicInfo!);
+        else preferences.NormalizePublicInfo();
+        if (values.TryGetValue("SpeechInterval", out var speechInterval)) preferences.SetSpeechInterval((string)speechInterval!);
+        else if (values.TryGetValue("SpeechMinMinutes", out var speechMinutes)) preferences.SetSpeechInterval(speechMinutes switch { 2 => "2m", 3 => "3m", 5 => "5m", 15 => "15m", 20 => "20m", _ => "10m" });
         if (values.TryGetValue("PuppetMode", out puppet)) SetPuppetMode((bool)puppet!);
+        bool contextChanged = oldPublicInfo != preferences.PublicInfo || oldWeather != preferences.WeatherEnabled
+            || oldNews != preferences.NewsEnabled || oldForeground != preferences.ForegroundEnabled;
         if (oldGpu != preferences.GpuEnabled || oldModel && !preferences.ModelEnabled) InvalidateSpeechRequests(true);
+        else if (contextChanged) InvalidateSpeechRequests();
         brain.UseGpu = preferences.GpuEnabled; brain.WeatherRegionCode = preferences.WeatherRegionCode;
         if (oldRegion != preferences.WeatherRegionCode) InvalidateSpeechRequests();
         ApplyCompanionPowerPolicy(); ApplyCompanionScale(false); ApplyCompanionBubbleScale(false);
         if (values.TryGetValue("Left", out var left) && left is double x) Left = x;
         if (values.TryGetValue("Top", out var top) && top is double y) Top = y;
         ClampCompanion(); anchor = new(Left, Top);
-        if (!preferences.HideOnFullscreen && fullscreenHidden) { fullscreenHidden = false; if (!hiddenByUser) Show(); }
-        if (values.ContainsKey("SpeechMinMinutes")) nextSpeech = DateTime.UtcNow.Add(preferences.NextSpeechDelay(companionRandom));
+        if (values.ContainsKey("SpeechMinMinutes") || values.ContainsKey("SpeechInterval")) nextSpeech = DateTime.UtcNow.Add(preferences.NextSpeechDelay(companionRandom));
         if (values.ContainsKey("AnimationIntervalSeconds")) nextAction = DateTime.UtcNow.AddSeconds(preferences.AnimationIntervalSeconds);
         if (values.ContainsKey("BubbleDurationIndex") && bubble.Visibility == Visibility.Visible) ResetBubbleDeadline();
         ConfigureAgent();
