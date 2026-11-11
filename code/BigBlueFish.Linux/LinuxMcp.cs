@@ -31,8 +31,9 @@ internal sealed partial class LinuxPetWindow
     bool AgentDailyActive => Preferences.AgentEnabled && Preferences.AgentDailySpeech;
     async Task<AgentSpeechBrief> BuildAgentSpeechBrief(string kind, CancellationToken token)
     {
-        bool publicInfo = Preferences.PublicInfo;
-        var material = await brain.AgentSpeechBrief(kind == "weather_request", publicInfo, token);
+        bool useWeather = Preferences.PublicInfo && Preferences.WeatherEnabled;
+        bool useNews = Preferences.PublicInfo && Preferences.NewsEnabled;
+        var material = await brain.AgentSpeechBrief(kind == "weather_request", useWeather, useNews, token);
         if (!material.ObserveScreen) return new(material.Text);
         if (!Preferences.ForegroundEnabled) return new(material.Text + "\n本轮未启用读取前台内容，按已有情境自然关心主人。");
         var handle = CompanionNative.ResolveForeground(CompanionNative.GetForegroundWindow(), lastForeground);

@@ -127,7 +127,7 @@ public partial class MainWindow
             StopOnBattery = preferences.StopModelOnBattery,
             WeatherRegionCode = preferences.WeatherRegionCode,
             NewsSource = () => preferences.NewsSource,
-            NewsLocation = () => preferences.NewsLocation
+            NewsLocation = () => preferences.ActiveNewsLocation
         };
         InitializeComponent();
         System.Windows.Shell.WindowChrome.SetWindowChrome(this, null);
@@ -599,7 +599,7 @@ public partial class MainWindow
         if (companionClosed || exitAnimation)
             return;
         if (gap > 30 || gap < -1) RecoverCompanionSession();
-        if (preferences.PublicInfo) brain.RefreshWeather();
+        if (preferences.PublicInfo && preferences.WeatherEnabled) brain.RefreshWeather();
         if (App.Args.Contains("--test-mode") && now > diagnosticAt)
         {
             diagnosticAt = now.AddSeconds(1);
@@ -764,7 +764,8 @@ public partial class MainWindow
             { DiagnosticLog.Write(DiagnosticEvent.SpeechSkipped, kind: "local", state: brain.Busy || weatherRequestPending ? "busy" : hiddenByUser || fullscreenHidden ? "hidden" : "cancelled"); return; }
             nextSpeech = DateTime.UtcNow.Add(preferences.NextSpeechDelay(companionRandom));
             BeginModelSpeech(); // A preceding weather request may have ended its own loading indicator.
-            text = await brain.Generate(preferences.PublicInfo, preferences.ForegroundEnabled, foregroundHandle, partial =>
+            text = await brain.Generate(preferences.PublicInfo && preferences.NewsEnabled,
+                preferences.PublicInfo && preferences.WeatherEnabled, preferences.ForegroundEnabled, foregroundHandle, partial =>
             {
                 streamed = true;
                 ShowCompanionPartial(partial, version, agentTriggered);

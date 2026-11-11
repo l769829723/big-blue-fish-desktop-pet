@@ -54,8 +54,9 @@ internal sealed partial class LinuxPetWindow : Window
         DiagnosticLog.ConfigureDirectories(AppContext.BaseDirectory, Environment.CurrentDirectory);
         DiagnosticLog.Write(DiagnosticEvent.AppStarted, kind: "Linux", directory: Environment.CurrentDirectory);
         DiagnosticLog.ObserveSettings(Preferences);
-        brain = new() { UseGpu = Preferences.GpuEnabled, StopOnBattery = Preferences.StopModelOnBattery, WeatherRegionCode = Preferences.WeatherRegionCode,
-            NewsSource = () => Preferences.NewsSource, NewsLocation = () => Preferences.NewsLocation };
+        brain = new() { UseGpu = Preferences.GpuEnabled, UseExternalApi = Preferences.ModelBackend == "api", ExternalApiUrl = Preferences.LocalLlamaApiUrl,
+            StopOnBattery = Preferences.StopModelOnBattery, WeatherRegionCode = Preferences.WeatherRegionCode,
+            NewsSource = () => Preferences.NewsSource, NewsLocation = () => Preferences.ActiveNewsLocation };
         Title = "蓝色大肥鱼"; WindowDecorations = WindowDecorations.None; ShowInTaskbar = false; ShowActivated = false;
         Topmost = true; CanResize = false; Background = Brushes.Transparent; TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
         var canvas = new Grid(); canvas.Children.Add(sprite); canvas.Children.Add(loading); Content = canvas;
@@ -239,7 +240,7 @@ internal sealed partial class LinuxPetWindow : Window
         await TestCommands(); if (closed || phase == "Exit") return;
         var now = DateTime.UtcNow;
         lastForeground = CompanionNative.ResolveForeground(CompanionNative.GetForegroundWindow(), lastForeground);
-        if (Preferences.PublicInfo) brain.RefreshWeather();
+        if (Preferences.PublicInfo && Preferences.WeatherEnabled) brain.RefreshWeather();
         if (!brain.CanRunOnCurrentPower) {
             if (brain.RunnerPid != null || brain.Busy) { speechVersion++; brain.Stop(); loading.IsVisible = false; }
             if (modelReply) bubbleWindow.Hide();
@@ -278,7 +279,9 @@ internal sealed partial class LinuxPetWindow : Window
             while (brain.Busy && DateTime.UtcNow < until && version == speechVersion) await Task.Delay(100);
             if (brain.Busy || version != speechVersion || Puppet && !agentTriggered || hidden || fullscreenHidden) return;
             nextSpeech = DateTime.UtcNow.Add(Preferences.NextSpeechDelay(random));
-            var text = weather ? await brain.GenerateWeather(p => Partial(p, version, agentTriggered)) : await brain.Generate(Preferences.PublicInfo, Preferences.ForegroundEnabled, lastForeground, p => Partial(p, version, agentTriggered));
+            var text = weather ? await brain.GenerateWeather(p => Partial(p, version, agentTriggered)) : await brain.Generate(
+                Preferences.PublicInfo && Preferences.NewsEnabled, Preferences.PublicInfo && Preferences.WeatherEnabled,
+                Preferences.ForegroundEnabled, lastForeground, p => Partial(p, version, agentTriggered));
             if (version != speechVersion || Puppet && !agentTriggered || hidden || fullscreenHidden || closed || !Preferences.ModelEnabled || !brain.CanRunOnCurrentPower) return;
             if (text.Length > 0) { if (streamed) { fullText = text; bubbleText.Text = text; ResetDwell(); } else ShowText(text, false, fromModel: true); }
             else if (streamed && !externalSpeech) bubbleWindow.Hide();

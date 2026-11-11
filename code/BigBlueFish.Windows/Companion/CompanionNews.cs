@@ -20,12 +20,21 @@ internal static class CompanionNews
 
     internal static Item[] ReadFeed(string xml, DateTimeOffset now)
     {
-        return XDocument.Parse(xml).Descendants("item")
-            .Where(i => DateTimeOffset.TryParse((string?)i.Element("pubDate"), out var date)
-                && date <= now && now - date < TimeSpan.FromDays(2))
-            .Select(i => new Item(PlainText((string?)i.Element("title"), 240),
-                PlainText((string?)i.Element("description"), 1600),
-                DateTimeOffset.Parse((string)i.Element("pubDate")!)))
+        static string? Field(XElement item, params string[] names) => item.Elements()
+            .FirstOrDefault(e => names.Contains(e.Name.LocalName, StringComparer.OrdinalIgnoreCase))?.Value;
+        return XDocument.Parse(xml).Descendants()
+            .Where(i => string.Equals(i.Name.LocalName, "item", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(i.Name.LocalName, "entry", StringComparison.OrdinalIgnoreCase))
+            .Select(i =>
+            {
+                string? published = Field(i, "pubDate", "published", "updated");
+                return DateTimeOffset.TryParse(published, out var date)
+                    ? new Item(PlainText(Field(i, "title"), 240),
+                        PlainText(Field(i, "description", "summary", "content"), 1600), date)
+                    : null;
+            })
+            .Where(i => i != null && i.Published <= now && now - i.Published < TimeSpan.FromDays(2))
+            .Select(i => i!)
             .Where(i => i.Title.Length > 0)
             .DistinctBy(i => i.Title).Take(30).ToArray();
     }

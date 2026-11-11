@@ -120,7 +120,7 @@ public partial class MainWindow
             panel.Children.Add(new Border { Background = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(226, 233, 243)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Child = inner });
         }
         var p = pages[2];
-        void Toggle(string label, bool value, Action<bool> change)
+        CheckBox Toggle(string label, bool value, Action<bool> change)
         {
             var c = new CheckBox
             {
@@ -134,6 +134,7 @@ public partial class MainWindow
                 SaveCompanion();
             };
             p.Children.Add(c);
+            return c;
         }
 
         Toggle("启用本地大模型", preferences.ModelEnabled, v =>
@@ -176,15 +177,45 @@ public partial class MainWindow
         Toggle("开机自动启动", StartupEnabled(), SetCompanionStartup);
         Toggle("启动时检查更新", preferences.CheckUpdatesOnStartup, v => preferences.CheckUpdatesOnStartup = v);
         p = pages[1];
-        Toggle("自动获取天气和科技新闻", preferences.PublicInfo, v => preferences.PublicInfo = v);
+        CheckBox? weatherEnabled = null, newsEnabled = null;
+        var publicInfoEnabled = Toggle("自动获取天气和科技新闻", preferences.PublicInfo, v =>
+        {
+            preferences.PublicInfo = v;
+            if (weatherEnabled != null) weatherEnabled.IsEnabled = v;
+            if (newsEnabled != null) newsEnabled.IsEnabled = v;
+        });
+        weatherEnabled = Toggle("自动获取天气", preferences.WeatherEnabled, v => preferences.WeatherEnabled = v);
+        newsEnabled = Toggle("自动获取科技新闻", preferences.NewsEnabled, v => preferences.NewsEnabled = v);
+        weatherEnabled.IsEnabled = newsEnabled.IsEnabled = preferences.PublicInfo;
         p.Children.Add(new TextBlock { Text = "科技新闻来源", Margin = new Thickness(0, 10, 0, 4) });
-        var newsSource = new ComboBox { ItemsSource = new[] { "内置 IT之家 RSS", "从文件读取", "从 API 读取" }, SelectedIndex = preferences.NewsSource == "file" ? 1 : preferences.NewsSource == "api" ? 2 : 0, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var newsSource = new ComboBox { ItemsSource = new[] { "内置 IT之家 RSS", "自定义 RSS 地址", "从文件读取", "从 API 读取" }, SelectedIndex = preferences.NewsSource switch { "rss" => 1, "file" => 2, "api" => 3, _ => 0 }, HorizontalAlignment = HorizontalAlignment.Stretch };
         p.Children.Add(newsSource);
-        p.Children.Add(new TextBlock { Text = "文件路径或 API 地址（RSS/Atom 或 JSON）", Margin = new Thickness(0, 8, 0, 4) });
-        var newsLocation = new TextBox { Text = preferences.NewsLocation, MinWidth = 300 };
+        var newsLocationLabel = new TextBlock { Margin = new Thickness(0, 8, 0, 4) };
+        p.Children.Add(newsLocationLabel);
+        string CurrentNewsLocation() => preferences.NewsSource switch { "file" => preferences.NewsFilePath, "api" => preferences.NewsApiUrl, "rss" => preferences.NewsRssUrl, _ => "" };
+        void StoreNewsLocation(string value)
+        {
+            switch (preferences.NewsSource)
+            {
+                case "file": preferences.NewsFilePath = value; break;
+                case "api": preferences.NewsApiUrl = value; break;
+                case "rss": preferences.NewsRssUrl = value; break;
+            }
+        }
+        var newsLocation = new TextBox { Text = CurrentNewsLocation(), MinWidth = 300 };
         p.Children.Add(newsLocation);
-        newsSource.SelectionChanged += (_, _) => { preferences.NewsSource = newsSource.SelectedIndex switch { 1 => "file", 2 => "api", _ => "builtin" }; SaveCompanion(); };
-        newsLocation.LostKeyboardFocus += (_, _) => { preferences.NewsLocation = newsLocation.Text.Trim(); SaveCompanion(); };
+        void RefreshNewsLocation()
+        {
+            newsLocationLabel.Text = preferences.NewsSource switch { "file" => "新闻文件路径（RSS/Atom 或 JSON）", "api" => "新闻 API 地址（RSS/Atom 或 JSON）", "rss" => "RSS/Atom 地址", _ => "内置 IT之家 RSS" };
+            newsLocation.Text = CurrentNewsLocation();
+            newsLocation.IsEnabled = preferences.PublicInfo && preferences.NewsEnabled && preferences.NewsSource != "builtin";
+            newsSource.IsEnabled = preferences.PublicInfo && preferences.NewsEnabled;
+        }
+        RefreshNewsLocation();
+        newsSource.SelectionChanged += (_, _) => { StoreNewsLocation(newsLocation.Text.Trim()); preferences.NewsSource = newsSource.SelectedIndex switch { 1 => "rss", 2 => "file", 3 => "api", _ => "builtin" }; brain.RefreshNews(); RefreshNewsLocation(); SaveCompanion(); };
+        newsLocation.LostKeyboardFocus += (_, _) => { StoreNewsLocation(newsLocation.Text.Trim()); brain.RefreshNews(); SaveCompanion(); };
+        publicInfoEnabled.Click += (_, _) => RefreshNewsLocation();
+        newsEnabled.Click += (_, _) => RefreshNewsLocation();
         Toggle("感知当前应用", preferences.ForegroundEnabled, v => preferences.ForegroundEnabled = v);
 #if !COMPANION_SAFE
         p.Children.Add(new TextBlock { Text = "本地吐字在本机读取屏幕；由 Agent 编写日常关心时，会向它提供前台截图。", FontSize = 11,

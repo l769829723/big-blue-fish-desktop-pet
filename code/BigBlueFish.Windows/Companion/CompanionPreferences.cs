@@ -11,8 +11,15 @@ internal sealed class CompanionPreferences
     public string LocalLlamaApiUrl { get; set; } = "http://127.0.0.1:8080/v1";
     public bool GpuEnabled { get; set; } = true;
     public bool PublicInfo { get; set; } = true;
+    public bool WeatherEnabled { get; set; } = true;
+    public bool NewsEnabled { get; set; } = true;
     public string NewsSource { get; set; } = "builtin";
-    public string NewsLocation { get; set; } = "https://www.ithome.com/rss/";
+    public string NewsRssUrl { get; set; } = "https://www.ithome.com/rss/";
+    public string NewsFilePath { get; set; } = "";
+    public string NewsApiUrl { get; set; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string NewsLocation { get; set; } = "";
+    [JsonIgnore] public string ActiveNewsLocation => NewsSource switch { "file" => NewsFilePath, "api" => NewsApiUrl, "rss" => NewsRssUrl, _ => "https://www.ithome.com/rss/" };
     public bool ForegroundEnabled { get; set; } = true;
     public bool StopModelOnBattery { get; set; } = true;
     public bool HideOnFullscreen { get; set; } = true;
@@ -97,6 +104,10 @@ internal sealed class CompanionPreferences
                 var s = JsonSerializer.Deserialize<CompanionPreferences>(File.ReadAllText(p));
                 if (s != null)
                 {
+                    s.NewsSource = s.NewsSource is "file" or "api" or "rss" ? s.NewsSource : "builtin";
+                    if (string.IsNullOrWhiteSpace(s.NewsRssUrl)) s.NewsRssUrl = s.NewsSource == "rss" && !string.IsNullOrWhiteSpace(s.NewsLocation) ? s.NewsLocation : "https://www.ithome.com/rss/";
+                    if (string.IsNullOrWhiteSpace(s.NewsFilePath) && s.NewsSource == "file") s.NewsFilePath = s.NewsLocation;
+                    if (string.IsNullOrWhiteSpace(s.NewsApiUrl) && s.NewsSource == "api") s.NewsApiUrl = s.NewsLocation;
 #if COMPANION_SAFE
                     s.McpEnabled = false;
                     s.PuppetMode = false;

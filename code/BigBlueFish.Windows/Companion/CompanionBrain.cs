@@ -43,6 +43,8 @@ internal sealed class CompanionBrain : IDisposable
     private DateTime newsExpires = DateTime.MinValue;
     private readonly Func<double> newsRoll;
     private string lastNewsTitle = "";
+    private string? lastNewsFailure;
+    private const string ExternalApiNotice = "模型配置有误，请检查本地 API 地址和服务状态。";
     internal string Status { get; private set; } = "等待说话时启动";
     internal bool Busy { get; private set; }
     internal bool UseGpu { get; set; } = true;
@@ -415,6 +417,13 @@ internal sealed class CompanionBrain : IDisposable
     }
 
     internal void RefreshWeather() => _ = weather.RefreshIfDue(WeatherRegionCode);
+    internal void RefreshNews()
+    {
+        newsItems = Array.Empty<CompanionNews.Item>();
+        newsExpires = DateTime.MinValue;
+        lastNewsTitle = "";
+        lastNewsFailure = null;
+    }
 
     private string WeatherContext() => weather.CachedContext(WeatherRegionCode);
     internal Task<string> GetWeatherContext(CancellationToken token) => weather.Context(WeatherRegionCode, token);
@@ -444,8 +453,8 @@ internal sealed class CompanionBrain : IDisposable
         {
             DiagnosticLog.Write(DiagnosticEvent.SpeechFailed, kind: "local", error: e);
             StopRunner(); RecordFailure("生成", e);
-            Status = e is IOException ? e.Message : "暂时无法获取或播报天气，请稍后重试";
-            return "";
+            Status = UseExternalApi ? ExternalApiNotice : e is IOException ? e.Message : "暂时无法获取或播报天气，请稍后重试";
+            return UseExternalApi ? ExternalApiNotice : "";
         }
         finally
         {
@@ -473,24 +482,26 @@ internal sealed class CompanionBrain : IDisposable
     {
         var messages = BuildMessages(persona, request, image);
         LastTimings = null;
-        var payload = new
-        {
-            model = "local",
-            messages,
-            temperature,
-            top_p = .9,
-            max_tokens = persona == NewsPersona ? 160 : persona == WeatherPersona ? 220 : 180,
-            stream = StreamingResponses,
-            cache_prompt = true,
-            stream_options = new { include_usage = true },
-            chat_template_kwargs = new { enable_thinking = false }
-        };
+        object payload = UseExternalApi
+            ? new
+            {
+                model = "local", messages, temperature, top_p = .9,
+                max_tokens = persona == NewsPersona ? 160 : persona == WeatherPersona ? 220 : 180,
+                stream = StreamingResponses, stream_options = new { include_usage = true }
+            }
+            : new
+            {
+                model = "local", messages, temperature, top_p = .9,
+                max_tokens = persona == NewsPersona ? 160 : persona == WeatherPersona ? 220 : 180,
+                stream = StreamingResponses, cache_prompt = true,
+                stream_options = new { include_usage = true }, chat_template_kwargs = new { enable_thinking = false }
+            };
         if (App.Args.Contains("--test-mode"))
         {
             try { File.WriteAllText(Path.GetFullPath("model-request.json"), JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true })); }
             catch { }
         }
-        var endpoint = UseExternalApi ? new Uri(new Uri(ExternalApiUrl.TrimEnd('/') + "/"), "chat/completions")
+        var endpoint = UseExternalApi ? ExternalApiEndpoint()
             : new Uri($"http://127.0.0.1:{port}/v1/chat/completions");
         using var requestMessage = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
@@ -518,6 +529,8 @@ internal sealed class CompanionBrain : IDisposable
             try
             {
                 using var chunk = JsonDocument.Parse(data);
+                if (UseExternalApi && chunk.RootElement.TryGetProperty("error", out _))
+                    throw new InvalidDataException("本地模型 API 返回错误响应");
                 if (chunk.RootElement.TryGetProperty("timings", out var timings)) LastTimings = timings.Clone();
                 if (!chunk.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
                     continue;
@@ -542,32 +555,62 @@ internal sealed class CompanionBrain : IDisposable
             }
         }
 
+        if (UseExternalApi && raw.Length == 0)
+            throw new InvalidDataException("本地模型 API 未返回可用吐字内容");
         return Clean(raw.ToString());
+    }
+
+    private Uri ExternalApiEndpoint()
+    {
+        string address = ExternalApiUrl.Trim();
+        if (!Uri.TryCreate(address, UriKind.Absolute, out var baseAddress)
+            || baseAddress.Scheme is not ("http" or "https")
+            || string.IsNullOrWhiteSpace(baseAddress.Host)
+            || !string.IsNullOrEmpty(baseAddress.Query) || !string.IsNullOrEmpty(baseAddress.Fragment))
+            throw new InvalidDataException("本地模型 API 地址无效");
+        return new Uri(new Uri(baseAddress.AbsoluteUri.TrimEnd('/') + "/"), "chat/completions");
     }
 
     private async Task<CompanionNews.Item?> NewsItem(CancellationToken token)
     {
+        lastNewsFailure = null;
         if (DateTime.UtcNow >= newsExpires)
         {
+            string source = "builtin";
             try
             {
                 DiagnosticLog.Write(DiagnosticEvent.NewsFetch);
-                string source = NewsSource?.Invoke() ?? "builtin";
+                source = NewsSource?.Invoke() ?? "builtin";
                 string location = NewsLocation?.Invoke() ?? "https://www.ithome.com/rss/";
                 string content;
-                if (source == "file") content = await File.ReadAllTextAsync(location, token);
+                if (source == "file")
+                {
+                    if (string.IsNullOrWhiteSpace(location)) throw new InvalidDataException("新闻文件路径为空");
+                    content = await File.ReadAllTextAsync(location, token);
+                }
                 else
                 {
-                    using var r = await publicWeb.GetAsync(source == "builtin" ? "https://www.ithome.com/rss/" : location, token);
+                    string address = source == "builtin" ? "https://www.ithome.com/rss/" : location;
+                    if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+                        throw new InvalidDataException("新闻源地址无效");
+                    using var r = await publicWeb.GetAsync(uri, token);
                     r.EnsureSuccessStatusCode();
                     content = await r.Content.ReadAsStringAsync(token);
                 }
                 newsItems = CompanionNews.Read(content, DateTimeOffset.UtcNow);
+                if (newsItems.Length == 0) throw new InvalidDataException("新闻源未返回可用条目");
                 newsExpires = DateTime.UtcNow.AddMinutes(45);
             }
             catch (Exception e)when (e is not OperationCanceledException)
             {
                 DiagnosticLog.Write(DiagnosticEvent.NewsFailed, error: e);
+                lastNewsFailure = source switch
+                {
+                    "file" => "新闻文件读取失败，请检查路径和 RSS/JSON 格式。",
+                    "api" => "新闻 API 读取失败，请检查地址和 RSS/JSON 响应。",
+                    "rss" => "RSS 新闻源读取失败，请检查地址和订阅内容。",
+                    _ => "内置新闻源暂时不可用，本轮先跳过新闻。"
+                };
                 newsItems = newsItems.Where(i => DateTimeOffset.UtcNow - i.Published < TimeSpan.FromDays(2)).ToArray();
                 newsExpires = DateTime.UtcNow.AddMinutes(2);
             }
@@ -580,20 +623,28 @@ internal sealed class CompanionBrain : IDisposable
 
     internal sealed record AgentBriefMaterial(string Text, bool ObserveScreen);
     private static string AgentBrief(string persona, string request = "") => "【鱼鱼说话要求】\n" + persona + "\n【说话要求结束】" + (request.Length > 0 ? "\n" + request : "");
-    internal async Task<AgentBriefMaterial> AgentSpeechBrief(bool weatherRequest, bool usePublic, CancellationToken token)
+    internal Task<AgentBriefMaterial> AgentSpeechBrief(bool weatherRequest, bool usePublic, CancellationToken token)
+        => AgentSpeechBrief(weatherRequest, usePublic, usePublic, token);
+
+    internal async Task<AgentBriefMaterial> AgentSpeechBrief(bool weatherRequest, bool useWeather, bool useNews, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
         if (weatherRequest) { DiagnosticLog.Write(DiagnosticEvent.AgentMaterials, kind: "weather"); return new(AgentBrief(WeatherPersona), false); } // Event payload carries the weather data.
-        var news = usePublic && CompanionNews.ShouldSelect(newsRoll()) ? await NewsItem(token) : null;
+        lastNewsFailure = null;
+        var news = useNews && CompanionNews.ShouldSelect(newsRoll()) ? await NewsItem(token) : null;
         token.ThrowIfCancellationRequested();
+        if (lastNewsFailure != null) return new(AgentBrief(NewsPersona, "请简短告诉主人：" + lastNewsFailure), false);
         if (news != null) { DiagnosticLog.Write(DiagnosticEvent.AgentMaterials, kind: "news"); lastNewsTitle = news.Title; return new(AgentBrief(NewsPersona, NewsRequest(news.Context)), false); }
         string context = $"现在是{DateTime.Now:yyyy年M月d日 HH:mm}。";
-        if (usePublic && Random.Shared.NextDouble() < .15) context += "\n" + WeatherContext();
+        if (useWeather && Random.Shared.NextDouble() < .15) context += "\n" + WeatherContext();
         DiagnosticLog.Write(DiagnosticEvent.AgentMaterials, kind: "persona");
         return new(AgentBrief(FixedSpeechInstructions(Persona) + CompanionDialogue.ReactionHint(), SpeechRequest(context)), true);
     }
 
-    internal async Task<string> Generate(bool usePublic, bool useForeground, IntPtr foregroundHandle = default, Action<string>? onPartial = null)
+    internal Task<string> Generate(bool usePublic, bool useForeground, IntPtr foregroundHandle = default, Action<string>? onPartial = null)
+        => Generate(usePublic, usePublic, useForeground, foregroundHandle, onPartial);
+
+    internal async Task<string> Generate(bool useNews, bool useWeather, bool useForeground, IntPtr foregroundHandle = default, Action<string>? onPartial = null)
     {
         if (disposed || Busy || !CanRunOnCurrentPower)
             return "";
@@ -601,6 +652,7 @@ internal sealed class CompanionBrain : IDisposable
         Busy = true;
         active = new CancellationTokenSource(TimeSpan.FromSeconds(100));
         var token = active.Token;
+        lastNewsFailure = null;
 #if COMPANION_OCR
         var generationWatch = Stopwatch.StartNew();
         double? firstContentMs = null;
@@ -611,9 +663,16 @@ internal sealed class CompanionBrain : IDisposable
 #endif
         try
         {
+            if (UseExternalApi) _ = ExternalApiEndpoint();
             CompanionNews.Item? news = null;
-            if (usePublic && CompanionNews.ShouldSelect(newsRoll()))
+            if (useNews && CompanionNews.ShouldSelect(newsRoll()))
                 news = await NewsItem(token);
+            if (lastNewsFailure != null)
+            {
+                Status = lastNewsFailure;
+                DiagnosticLog.Write(DiagnosticEvent.SpeechCompleted, kind: "local", chars: lastNewsFailure.Length);
+                return lastNewsFailure;
+            }
 #if COMPANION_OCR
             publicInfoMs = generationWatch.Elapsed.TotalMilliseconds;
 #endif
@@ -670,7 +729,7 @@ internal sealed class CompanionBrain : IDisposable
                     DiagnosticLog.Write(DiagnosticEvent.ScreenReadFallback, kind: "image", error: error);
                 }
 #endif
-                if (usePublic && Random.Shared.NextDouble() < .15)
+                if (useWeather && Random.Shared.NextDouble() < .15)
 #if COMPANION_OCR
                 {
                     double publicStarted = generationWatch.Elapsed.TotalMilliseconds;
@@ -731,8 +790,8 @@ internal sealed class CompanionBrain : IDisposable
         {
             DiagnosticLog.Write(DiagnosticEvent.SpeechFailed, kind: "local", error: e);
             StopRunner(); RecordFailure("生成", e);
-            Status = e is IOException ? e.Message : "暂时无法生成，稍后重试";
-            return "";
+            Status = UseExternalApi ? ExternalApiNotice : e is IOException ? e.Message : "暂时无法生成，稍后重试";
+            return UseExternalApi ? ExternalApiNotice : "";
         }
         finally
         {

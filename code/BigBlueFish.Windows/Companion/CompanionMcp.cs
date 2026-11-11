@@ -48,8 +48,9 @@ public partial class MainWindow
     private bool AgentDailyActive => preferences.AgentEnabled && preferences.AgentDailySpeech;
     private async Task<AgentSpeechBrief> BuildAgentSpeechBrief(string kind, CancellationToken token)
     {
-        bool publicInfo = preferences.PublicInfo;
-        var material = await brain.AgentSpeechBrief(kind == "weather_request", publicInfo, token);
+        bool useWeather = preferences.PublicInfo && preferences.WeatherEnabled;
+        bool useNews = preferences.PublicInfo && preferences.NewsEnabled;
+        var material = await brain.AgentSpeechBrief(kind == "weather_request", useWeather, useNews, token);
         if (!material.ObserveScreen) return new(material.Text);
         if (!preferences.ForegroundEnabled) return new(material.Text + "\n本轮未启用读取前台内容，按已有情境自然关心主人。");
         var handle = CompanionNative.ResolveSpeechForeground(CompanionNative.GetForegroundWindow(), lastExternalForeground);
