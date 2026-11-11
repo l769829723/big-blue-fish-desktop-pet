@@ -132,7 +132,14 @@ public partial class MainWindow
         Background = null;
         WindowStyle = WindowStyle.None;
         ShowActivated = false;
-        Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(System.IO.Path.Combine(AppContext.BaseDirectory, "BigBlueFish.ico")));
+        string iconPath = Path.Combine(AppContext.BaseDirectory, "BigBlueFish.ico");
+        using (var appIcon = new System.Drawing.Icon(iconPath, new System.Drawing.Size(32, 32)))
+        {
+            var iconImage = System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(appIcon.Handle,
+                System.Windows.Int32Rect.Empty, System.Windows.Media.Imaging.BitmapSizeOptions.FromWidthAndHeight(32, 32));
+            iconImage.Freeze();
+            Icon = iconImage;
+        }
         // Keep the pet as a normal app window so external capture APIs and
         // window pickers can enumerate its HWND. Tool windows are commonly filtered.
         ShowInTaskbar = true;
