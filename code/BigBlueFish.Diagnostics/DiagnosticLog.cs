@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -10,7 +11,7 @@ namespace BigBlueFish.Diagnostics;
 
 public enum DiagnosticEvent
 {
-    AppStarted, AppStopped, SettingsOpened, SettingsClosed, SettingsChanged, VisibilityChanged,
+    AppStarted, AppStopped, AppCrashReportSaved, SettingsOpened, SettingsClosed, SettingsChanged, SettingsPageChanged, VisibilityChanged,
     SessionRecovery, Interaction, AnimationStarted, AnimationCompleted, AnimationFailed, TrayState, AppFailed,
     SpeechRequested, SpeechSkipped, SpeechStarted, SpeechCompleted, SpeechCancelled, SpeechFailed,
     ScreenReadStarted, ScreenReadCompleted, ScreenReadFallback, BubbleShown, BubbleClosed,
@@ -35,11 +36,12 @@ public static class DiagnosticLog
     static readonly byte[] pathSalt = RandomNumberGenerator.GetBytes(16);
     static long sequence, revision;
     static string appDirectory = Path.GetFullPath(AppContext.BaseDirectory), dataDirectory = Path.GetFullPath(Environment.CurrentDirectory);
+    static StreamWriter? sessionJournal;
     static readonly HashSet<string> tokens = new(("start success failed cancelled blocked ready stopped hidden visible fullscreen user automatic test weather local agent "
         + "persona news screen image ocr text GPU CPU cache cold warm startup exit idle Event Idle Click Drag Greeting Daily Startup Exit External PuppetIdle "
         + "Outbound Return BetweenMoves click drag_start drag_end user_message daily_care speech_test weather_request wakeup start_care connect reconnect new_conversation "
         + "set_configuration authentication permission read write model mode thought_level other unavailable unsupported empty expired changed enabled disabled "
-        + "Standard Safe OCR Vision Windows Linux Preview timeout first_content hardware_fallback notice manual busy power model_missing puppet "
+        + "Standard Safe OCR Vision Windows Linux Preview timeout first_content hardware_fallback notice manual busy power model_missing puppet fatal dispatcher "
         + "get_settings update_settings list_actions capture_foreground capture_screen play_action interrupt_action say say_next request_local_speech "
         + "get_operation_guide get_wakeups schedule_wakeup cancel_wakeup terminal oauth restored created "
         + "claude codex gemini dsh kimi qwen antigravity copilot cursor opencode cline codebuddy qoder trae kiro pi devin grok hermes openclaw minimax").Split(' ', StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal);
@@ -60,7 +62,82 @@ public static class DiagnosticLog
     public static void Clear() { lock (gate) { entries.Clear(); revision++; } }
     public static void ConfigureDirectories(string app, string data)
     {
-        lock (gate) { appDirectory = Path.GetFullPath(app); dataDirectory = Path.GetFullPath(data); }
+        lock (gate)
+        {
+            var nextApp = Path.GetFullPath(app); var nextData = Path.GetFullPath(data);
+            if (sessionJournal != null && string.Equals(appDirectory, nextApp, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(dataDirectory, nextData, StringComparison.OrdinalIgnoreCase)) return;
+            sessionJournal?.Dispose();
+            appDirectory = nextApp; dataDirectory = nextData;
+            try
+            {
+                var directory = Path.Combine(dataDirectory, "logs");
+                Directory.CreateDirectory(directory);
+                RecoverInterruptedSessions(directory);
+                string path = Path.Combine(directory, $"session-{DateTime.Now:yyyyMMdd-HHmmss-fff}-{Environment.ProcessId}.log");
+                sessionJournal = new StreamWriter(new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read), new UTF8Encoding(false)) { AutoFlush = true };
+                sessionJournal.WriteLine($"Session started: {DateTimeOffset.Now:O}; PID={Environment.ProcessId}");
+            }
+            catch { sessionJournal = null; }
+        }
+    }
+    static void RecoverInterruptedSessions(string directory)
+    {
+        foreach (var path in Directory.GetFiles(directory, "session-*.log").OrderByDescending(File.GetLastWriteTimeUtc).Take(10))
+        {
+            try
+            {
+                var nameParts = Path.GetFileNameWithoutExtension(path).Split('-');
+                if (nameParts.Length > 0 && int.TryParse(nameParts[^1], out int processId))
+                {
+                    bool activeSession = false;
+                    try
+                    {
+                        using var active = Process.GetProcessById(processId);
+                        activeSession = !active.HasExited && active.StartTime.ToUniversalTime() <= File.GetLastWriteTimeUtc(path);
+                    }
+                    catch { }
+                    if (activeSession) continue;
+                }
+                string? last = null;
+                using (var reader = new StreamReader(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)))
+                    while (reader.ReadLine() is { } line) last = line;
+                if (last?.Contains("[AppStopped]", StringComparison.Ordinal) == true) continue;
+                var report = Path.Combine(directory, "crash-recovered-" + Path.GetFileNameWithoutExtension(path) + ".txt");
+                if (File.Exists(report)) continue;
+                File.Copy(path, report);
+                File.AppendAllText(report, Environment.NewLine + "Recovered on next launch: previous session has no normal shutdown record." + Environment.NewLine, new UTF8Encoding(false));
+            }
+            catch { }
+        }
+    }
+    public static string? SaveCrashReport(Exception exception, bool fatal)
+    {
+        try
+        {
+            string directory = Path.Combine(dataDirectory, "logs");
+            Directory.CreateDirectory(directory);
+            string path = Path.Combine(directory, $"crash-{DateTime.Now:yyyyMMdd-HHmmss-fff}-{Environment.ProcessId}.txt");
+            Write(DiagnosticEvent.AppCrashReportSaved, kind: fatal ? "fatal" : "dispatcher", directory: directory);
+            File.WriteAllText(path, ExportText() + $"\nUnhandled exception type: {exception.GetType().FullName}\nHRESULT: 0x{exception.HResult:X8}\n", new UTF8Encoding(true));
+            return path;
+        }
+        catch { return null; }
+    }
+    public static void CloseSession()
+    {
+        lock (gate)
+        {
+            if (sessionJournal == null) return;
+            if (entries.Count == 0 || entries.Last().Code != nameof(DiagnosticEvent.AppStopped))
+            {
+                var entry = new DiagnosticEntry(++sequence, DateTimeOffset.Now, "INFO", nameof(DiagnosticEvent.AppStopped), Message(DiagnosticEvent.AppStopped), "");
+                entries.Enqueue(entry);
+                try { sessionJournal.WriteLine(entry); } catch { }
+            }
+            try { sessionJournal.Dispose(); } catch { }
+            sessionJournal = null;
+        }
     }
     public static void ObserveSettings(object settings)
     {
@@ -108,15 +185,22 @@ public static class DiagnosticLog
             fields.Add("hresult=0x" + error.HResult.ToString("X8", CultureInfo.InvariantCulture));
             if (error is System.ComponentModel.Win32Exception win32) fields.Add("win32=" + win32.NativeErrorCode);
             if (error is HttpRequestException http && http.StatusCode != null) fields.Add("http_status=" + (int)http.StatusCode);
-            var methods = new StackTrace(error, false).GetFrames()?.Select(x => x.GetMethod())
-                .Where(x => x?.DeclaringType?.Namespace?.StartsWith("BigBlueFish", StringComparison.Ordinal) == true)
-                .Take(5).Select(x => x!.DeclaringType!.Name + "." + x.Name).ToArray();
+            var methods = new StackTrace(error, true).GetFrames()
+                ?.Where(x => x.GetMethod()?.DeclaringType?.Namespace?.StartsWith("BigBlueFish", StringComparison.Ordinal) == true)
+                .Take(8).Select(x =>
+                {
+                    var method = x.GetMethod()!;
+                    int line = x.GetFileLineNumber();
+                    return method.DeclaringType!.Name + "." + method.Name + (line > 0 ? ":" + line.ToString(CultureInfo.InvariantCulture) : "");
+                }).ToArray();
             if (methods is { Length: > 0 }) fields.Add("at=" + string.Join(" > ", methods));
         }
         string level = error != null || state is "failed" or "unsupported" ? "WARN" : "INFO";
         lock (gate)
         {
-            entries.Enqueue(new(++sequence, DateTimeOffset.Now, level, code.ToString(), Message(code), string.Join("; ", fields)));
+            var entry = new DiagnosticEntry(++sequence, DateTimeOffset.Now, level, code.ToString(), Message(code), string.Join("; ", fields));
+            entries.Enqueue(entry);
+            try { sessionJournal?.WriteLine(entry); } catch { try { sessionJournal?.Dispose(); } catch { } sessionJournal = null; }
             while (entries.Count > Capacity) entries.Dequeue();
             revision++;
         }
@@ -151,8 +235,8 @@ public static class DiagnosticLog
     public static void SaveText(string path) => File.WriteAllText(path, ExportText(), new UTF8Encoding(true));
     static string Message(DiagnosticEvent code) => code switch
     {
-        DiagnosticEvent.AppStarted => "桌宠启动", DiagnosticEvent.AppStopped => "桌宠退出", DiagnosticEvent.AppFailed => "桌宠运行异常", DiagnosticEvent.TrayState => "托盘图标状态变化",
-        DiagnosticEvent.SettingsOpened => "打开设置", DiagnosticEvent.SettingsClosed => "关闭设置", DiagnosticEvent.SettingsChanged => "设置已保存",
+        DiagnosticEvent.AppStarted => "桌宠启动", DiagnosticEvent.AppStopped => "桌宠退出", DiagnosticEvent.AppCrashReportSaved => "异常诊断快照已自动保存", DiagnosticEvent.AppFailed => "桌宠运行异常", DiagnosticEvent.TrayState => "托盘图标状态变化",
+        DiagnosticEvent.SettingsOpened => "打开设置", DiagnosticEvent.SettingsClosed => "关闭设置", DiagnosticEvent.SettingsChanged => "设置已保存", DiagnosticEvent.SettingsPageChanged => "切换设置页面",
         DiagnosticEvent.VisibilityChanged => "桌宠可见状态变化", DiagnosticEvent.SessionRecovery => "恢复桌面会话并清理旧任务", DiagnosticEvent.Interaction => "收到桌宠交互",
         DiagnosticEvent.AnimationStarted => "开始播放动作", DiagnosticEvent.AnimationCompleted => "动作播放结束", DiagnosticEvent.AnimationFailed => "动画播放失败",
         DiagnosticEvent.SpeechRequested => "收到吐字请求", DiagnosticEvent.SpeechSkipped => "本次吐字未执行", DiagnosticEvent.SpeechStarted => "开始准备吐字",

@@ -92,17 +92,19 @@ public partial class MainWindow
             var button = navigation[i] = new Button { Content = titles[i], HorizontalContentAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 10), BorderThickness = new Thickness(0), Background = i == selectedPage ? new SolidColorBrush(Color.FromRgb(220, 234, 255)) : Brushes.Transparent };
             button.Click += (_, _) =>
             {
+                DiagnosticLog.Write(DiagnosticEvent.SettingsPageChanged, state: "start", count: selected);
                 try
                 {
                     CloseDropDowns(pageHost);
                     selectedPage = selected;
                     pageHost.Content = views[selected];
+                    DiagnosticLog.Write(DiagnosticEvent.SettingsPageChanged, state: "success", count: selected);
                     for (int n = 0; n < views.Length; n++)
                         navigation[n].Background = n == selected ? new SolidColorBrush(Color.FromRgb(220, 234, 255)) : Brushes.Transparent;
                 }
                 catch (Exception e)
                 {
-                    DiagnosticLog.Write(DiagnosticEvent.SettingsOpened, kind: "tab-switch", error: e);
+                    DiagnosticLog.Write(DiagnosticEvent.SettingsPageChanged, state: "failed", count: selected, error: e);
                     BigBlueFish.Deployment.ModernUI.Error(w, "切换设置页面失败", e);
                 }
             };
@@ -375,6 +377,7 @@ public partial class MainWindow
 
     private static void CloseDropDowns(DependencyObject root)
     {
+        if (root is not Visual) return;
         if (root is ComboBox combo) combo.IsDropDownOpen = false;
         for (int i = VisualTreeHelper.GetChildrenCount(root) - 1; i >= 0; i--)
             CloseDropDowns(VisualTreeHelper.GetChild(root, i));
