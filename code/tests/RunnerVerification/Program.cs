@@ -44,6 +44,18 @@ internal static class Program
         if (args.Length > 0 && args[0] == "--fake-runner") return await FakeRunner(int.Parse(args[1]), args[2], args.Length < 4 || args[3] == "gpu");
         try
         {
+            if (args[0] == "--api-endpoints")
+            {
+                Check(CompanionBrain.BuildExternalApiEndpoint("http://127.0.0.1:8080").AbsolutePath == "/chat/completions",
+                    "OpenAI-compatible API base URL works without a version path");
+                Check(CompanionBrain.BuildExternalApiEndpoint("http://127.0.0.1:8080/api").AbsolutePath == "/api/chat/completions",
+                    "custom /api prefix is preserved when forming the chat completion endpoint");
+                Check(CompanionBrain.BuildExternalApiEndpoint("http://127.0.0.1:8080/api/v2").AbsolutePath == "/api/v2/chat/completions",
+                    "arbitrary versioned API path prefix is preserved");
+                Check(CompanionBrain.BuildExternalApiEndpoint("http://127.0.0.1:8080/api/chat/completions").AbsolutePath == "/api/chat/completions",
+                    "a full chat completion endpoint is not appended twice");
+                return 0;
+            }
             if (args[0] == "--capture-fallback") return await CaptureFallbackVerification.Run(args.Contains("--live"));
             if (args[0] == "--diagnostics") return DiagnosticVerification.Run(args[1]);
             if (args[0] == "--device-live") return await InferenceDeviceVerification.Live(args[1]);

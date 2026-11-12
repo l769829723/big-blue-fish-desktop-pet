@@ -4,7 +4,7 @@
 
 鱼鱼准备了一百多种可爱的动作表情，平时会在桌面上呼吸、哼歌、伸懒腰、吃零食、玩耍，到了饭点会认真吃饭，到了节日会换上应景的小活动，被点一下、被拎起来时也有专门设计的反应。每次启动，她都会提起裙摆向主人行礼请安；关闭时，也会用同样的礼仪和主人道别。标准版还能通过 ACP 一键连接 21 款主流 CLI Agent，陪主人进行稳定的长对话。
 
-当前版本为 **1.1.24**，安装包请前往 [GitHub Releases](https://github.com/l769829723/big-blue-fish-desktop-pet/releases/latest) 下载。
+当前版本为 **1.1.25**，安装包请前往 [GitHub Releases](https://github.com/l769829723/big-blue-fish-desktop-pet/releases/latest) 下载。
 
 <p align="center">
   <img src="docs/images/bigbluefish-rest-transparent.png" width="38%" alt="蓝色大肥鱼休息状态" />
@@ -13,7 +13,7 @@
 
 ## 认识鱼鱼
 
-鱼鱼有一头柔软的蓝色长发，头顶戴着蕾丝女仆发饰，耳边是小小的鲸鳍，身后摇着一条鲸鱼尾巴。她穿着深蓝色的女仆装，白色围裙上印着一只小鲸鱼，整个人看起来就像一位住进电脑里的小鲸鱼娘。她平时安静地待在桌面边缘，身边透明的地方可以直接点到后面的桌面，主人也可以把她拖到任何喜欢的位置，大小可以在 50% 到 200% 之间调整。
+鱼鱼有一头柔软的蓝色长发，头顶戴着蕾丝女仆发饰，耳边是小小的鲸鳍，身后摇着一条鲸鱼尾巴。她穿着深蓝色的女仆装，白色围裙上印着一只小鲸鱼，整个人看起来就像一位住进电脑里的小鲸鱼娘。她平时安静地待在桌面边缘，主人可以在桌宠窗体范围内按住鼠标左键拖动她，也可以右键打开菜单；大小可以在 50% 到 200% 之间调整。
 
 她说话的语气亲切温柔，又带着一点可爱俏皮。看见主人在写代码，她会摇摇尾巴为认真工作的主人加油；看见主人和朋友约明天吃饭，她会忍不住对好吃的动一点小心思；天气变冷或者主人忙了很久，她也会轻轻地送来一句关心。启动时，她会按照时间说“主人早上好，鱼鱼给主人请安啦～”；道别时，她会说“主人再见～鱼鱼喜欢主人哦”。
 
@@ -61,15 +61,15 @@
 
 | 平台 | 标准版 | 无ACP版 |
 | --- | --- | --- |
-| Windows x64 | `BigBlueFish-v1.1.24-OCR-Setup.exe` | `BigBlueFish-v1.1.24-Safe-OCR-Setup.exe` |
-| Ubuntu／Debian x64 | `BigBlueFish-v1.1.24-Linux-x64.deb` | `BigBlueFish-v1.1.24-Safe-Linux-x64.deb` |
+| Windows x64 | `BigBlueFish-v1.1.25-OCR-Setup.exe` | `BigBlueFish-v1.1.25-Safe-OCR-Setup.exe` |
+| Ubuntu／Debian x64 | `BigBlueFish-v1.1.25-Linux-x64.deb` | `BigBlueFish-v1.1.25-Safe-Linux-x64.deb` |
 
 在 Windows 上，双击安装器即可开始部署。安装器会把桌宠程序、动画资源、.NET 运行时和本地推理运行时一并安装好，默认位置是 `Program Files` 下的“蓝色大肥鱼”文件夹，并创建桌面和开始菜单快捷方式。随后安装器会请主人选择模型的准备方式：Hugging Face（推荐）、国内源（稳定）或手动安装。自动下载的模型约 2.7 GB，下载完成后会经过 SHA-256 校验，中途断开也能从已有进度继续。下载时如果想改用手动安装，可以选择“放弃并转为手动安装”；手动安装会显示模型应放入的文件夹，并打开模型来源页面，也可以直接选择已经下载好的 GGUF 文件。卸载时可以在卸载界面勾选“保留模型和设置”。
 
 在 Ubuntu／Debian 上，下载对应的 `.deb` 后，在其所在目录执行：
 
 ```bash
-sudo apt install ./BigBlueFish-v1.1.24-Linux-x64.deb
+sudo apt install ./BigBlueFish-v1.1.25-Linux-x64.deb
 ```
 
 安装无ACP版时换成对应的文件名即可。安装完成后，可以从应用菜单或 `bigbluefish` 命令启动鱼鱼，再到设置的“模型与信息”中点击“安装模型”，为她准备本地模型。

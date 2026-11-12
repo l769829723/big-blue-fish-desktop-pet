@@ -181,7 +181,7 @@ public partial class MainWindow
         SizeToContent = SizeToContent.Manual;
         companionLayout = new Grid
         {
-            Background = null
+            Background = Brushes.Transparent
         };
         bubbleText = new TextBlock
         {

@@ -157,7 +157,7 @@ public partial class MainWindow
         p.Children.Add(new TextBlock { Text = "本地模型调用方式", Margin = new Thickness(0, 8, 0, 4) });
         var modelBackend = new ComboBox { ItemsSource = new[] { "内置模型（默认）", "本地 llama API" }, SelectedIndex = preferences.ModelBackend == "api" ? 1 : 0 };
         p.Children.Add(modelBackend);
-        var modelApiLabel = new TextBlock { Text = "llama API 地址（OpenAI 兼容 /v1）", Margin = new Thickness(0, 8, 0, 4) };
+        var modelApiLabel = new TextBlock { Text = "本地 API 地址（OpenAI 兼容；可填写任意路径前缀，如 /api）", Margin = new Thickness(0, 8, 0, 4) };
         p.Children.Add(modelApiLabel);
         var modelApiUrl = new TextBox { Text = preferences.LocalLlamaApiUrl, MinWidth = 300 };
         p.Children.Add(modelApiUrl);

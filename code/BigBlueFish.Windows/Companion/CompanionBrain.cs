@@ -581,14 +581,18 @@ internal sealed class CompanionBrain : IDisposable
         return Clean(raw.ToString());
     }
 
-    private Uri ExternalApiEndpoint()
+    private Uri ExternalApiEndpoint() => BuildExternalApiEndpoint(ExternalApiUrl);
+
+    internal static Uri BuildExternalApiEndpoint(string address)
     {
-        string address = ExternalApiUrl.Trim();
+        address = address.Trim();
         if (!Uri.TryCreate(address, UriKind.Absolute, out var baseAddress)
             || baseAddress.Scheme is not ("http" or "https")
             || string.IsNullOrWhiteSpace(baseAddress.Host)
             || !string.IsNullOrEmpty(baseAddress.Query) || !string.IsNullOrEmpty(baseAddress.Fragment))
             throw new InvalidDataException("本地模型 API 地址无效");
+        if (baseAddress.AbsolutePath.TrimEnd('/').EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
+            return baseAddress;
         return new Uri(new Uri(baseAddress.AbsoluteUri.TrimEnd('/') + "/"), "chat/completions");
     }
 

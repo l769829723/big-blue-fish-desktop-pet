@@ -112,6 +112,14 @@ internal static partial class Program
     static void VerifyNativeMouseRouting(MainWindow window)
     {
         var image=(CompanionSpriteImage)Read(window,"videoImage");
+        var layout=(Grid)Read(window,"companionLayout");
+        Check(ReferenceEquals(layout.Background,Brushes.Transparent)
+            && VisualTreeHelper.HitTest(layout,new Point(5,5))?.VisualHit==layout,
+            "transparent corners of the pet window remain hit-testable instead of passing mouse input through");
+        var corner=layout.PointToScreen(new Point(5,5));
+        Check(WindowFromPoint(new NativePoint((int)corner.X,(int)corner.Y))==Handle(window),
+            "Windows routes pointer hit testing to the pet HWND over a transparent corner");
+        Check(window.Topmost,"pet remains topmost while its transparent window surface accepts input");
         var oldCursor=System.Windows.Forms.Cursor.Position;
         var point=image.PointToScreen(new Point(image.ActualWidth/2,image.ActualHeight*.68));
         Check(SetCursorPos((int)point.X,(int)point.Y),"move pointer over the visible pet before routing native input");
@@ -136,6 +144,10 @@ internal static partial class Program
     }
     [System.Runtime.InteropServices.DllImport("user32.dll",SetLastError=true)]
     static extern bool SetCursorPos(int x,int y);
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    readonly struct NativePoint(int x,int y){internal readonly int X=x,Y=y;}
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern IntPtr WindowFromPoint(NativePoint point);
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern IntPtr GetForegroundWindow();
     [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint="GetWindowLongPtrW")]
