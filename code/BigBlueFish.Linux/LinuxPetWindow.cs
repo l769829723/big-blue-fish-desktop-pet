@@ -62,6 +62,7 @@ internal sealed partial class LinuxPetWindow : Window
         brain = new() { UseGpu = Preferences.GpuEnabled, UseExternalApi = Preferences.ModelBackend == "api", ExternalApiUrl = Preferences.LocalLlamaApiUrl,
             StopOnBattery = Preferences.StopModelOnBattery, WeatherRegionCode = Preferences.WeatherRegionCode,
             NewsSource = () => Preferences.NewsSource, NewsLocation = () => Preferences.ActiveNewsLocation,
+            NewsFileReadOrder = () => Preferences.NewsFileReadOrder, NewsFileLinesPerRead = () => Preferences.NewsFileLinesPerRead,
         };
         Preferences.ApplySpeakerRole(brain);
         Title = "蓝色大肥鱼"; WindowDecorations = WindowDecorations.None; ShowInTaskbar = false; ShowActivated = false;

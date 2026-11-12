@@ -23,7 +23,7 @@ internal static partial class Program
     }
     static void VerifyMixedDpi(MainWindow w)
     {
-        VerifyNativeMouseRouting();
+        VerifyNativeMouseRouting(w);
         foreach(var screen in System.Windows.Forms.Screen.AllScreens)
         {
             var area=screen.WorkingArea;

@@ -33,8 +33,7 @@ public partial class MainWindow
             Background = new SolidColorBrush(Color.FromRgb(246, 248, 252)),
             FontFamily = new FontFamily("Microsoft YaHei UI"),
             FontSize = 14,
-            Owner = this,
-            ShowInTaskbar = false,
+            ShowInTaskbar = true,
             Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(System.IO.Path.Combine(AppContext.BaseDirectory, "BigBlueFish.ico"))),
             ShowActivated = true,
             Topmost = false
@@ -485,13 +484,34 @@ public partial class MainWindow
         }
         var newsLocation = new TextBox { Text = CurrentNewsLocation(), MinWidth = 300 };
         p.Children.Add(newsLocation);
+        var newsFileSettings = new StackPanel();
+        newsFileSettings.Children.Add(new TextBlock { Text = "文件读取顺序", Margin = new Thickness(0, 8, 0, 4) });
+        var newsFileReadOrder = new ComboBox
+        {
+            ItemsSource = new[] { "正序", "倒序", "随机" },
+            SelectedIndex = preferences.NewsFileReadOrder switch { "reverse" => 1, "random" => 2, _ => 0 },
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        newsFileSettings.Children.Add(newsFileReadOrder);
+        newsFileSettings.Children.Add(new TextBlock { Text = "每次读取行数", Margin = new Thickness(0, 8, 0, 4) });
+        var newsFileLinesPerRead = new ComboBox
+        {
+            ItemsSource = Enumerable.Range(1, 20).Select(value => value.ToString()).ToArray(),
+            SelectedIndex = Math.Clamp(preferences.NewsFileLinesPerRead, 1, 20) - 1,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        newsFileSettings.Children.Add(newsFileLinesPerRead);
+        p.Children.Add(newsFileSettings);
         void RefreshNewsLocation()
         {
-            newsLocationLabel.Text = preferences.NewsSource switch { "file" => "新闻文件路径（RSS/Atom 或 JSON）", "api" => "新闻 API 地址（RSS/Atom 或 JSON）", _ => "使用内置科技新闻" };
+            newsLocationLabel.Text = preferences.NewsSource switch { "file" => "主题灵感文件路径（每行一条，也支持 RSS/Atom 或 JSON）", "api" => "新闻 API 地址（RSS/Atom 或 JSON）", _ => "使用内置科技新闻" };
             newsLocation.Text = CurrentNewsLocation();
             bool customLocation = preferences.NewsSource is "file" or "api";
             newsLocation.Visibility = customLocation ? Visibility.Visible : Visibility.Collapsed;
             newsLocation.IsEnabled = preferences.PublicInfo && preferences.NewsEnabled && customLocation;
+            bool fileSource = preferences.NewsSource == "file";
+            newsFileSettings.Visibility = fileSource ? Visibility.Visible : Visibility.Collapsed;
+            newsFileReadOrder.IsEnabled = newsFileLinesPerRead.IsEnabled = preferences.PublicInfo && preferences.NewsEnabled && fileSource;
             newsSource.IsEnabled = preferences.PublicInfo && preferences.NewsEnabled;
             chatty.IsEnabled = preferences.PublicInfo && preferences.NewsEnabled;
             if (weatherEnabled != null) weatherEnabled.IsEnabled = preferences.PublicInfo;
@@ -509,6 +529,19 @@ public partial class MainWindow
         RefreshNewsLocation();
         newsSource.SelectionChanged += (_, _) => { StoreNewsLocation(newsLocation.Text.Trim()); preferences.NewsSource = newsSource.SelectedIndex switch { 1 => "file", 2 => "api", _ => "builtin" }; brain.RefreshNews(); RefreshNewsLocation(); SaveCompanion(); };
         newsLocation.LostKeyboardFocus += (_, _) => { StoreNewsLocation(newsLocation.Text.Trim()); brain.RefreshNews(); SaveCompanion(); };
+        newsFileReadOrder.SelectionChanged += (_, _) =>
+        {
+            preferences.NewsFileReadOrder = newsFileReadOrder.SelectedIndex switch { 1 => "reverse", 2 => "random", _ => "forward" };
+            brain.RefreshNews();
+            SaveCompanion();
+        };
+        newsFileLinesPerRead.SelectionChanged += (_, _) =>
+        {
+            if (newsFileLinesPerRead.SelectedIndex < 0) return;
+            preferences.NewsFileLinesPerRead = newsFileLinesPerRead.SelectedIndex + 1;
+            brain.RefreshNews();
+            SaveCompanion();
+        };
         publicInfoEnabled.Click += (_, _) => RefreshNewsLocation();
         newsEnabled.Click += (_, _) => RefreshNewsLocation();
         Toggle("感知当前应用", preferences.ForegroundEnabled, v =>

@@ -307,13 +307,35 @@ internal sealed partial class LinuxPetWindow
             body.Children.Add(newsLocationLabel);
             string CurrentNewsLocation() => Preferences.NewsSource switch { "file" => Preferences.NewsFilePath, "api" => Preferences.NewsApiUrl, _ => "" };
             var newsLocation = new TextBox { Text = CurrentNewsLocation() };
+            body.Children.Add(newsLocation);
+            var fileNewsSettings = new StackPanel { Spacing = 4 };
+            fileNewsSettings.Children.Add(new TextBlock { Text = "文件读取顺序", Margin = new Thickness(0, 8, 0, 2) });
+            var fileReadOrder = new ComboBox
+            {
+                ItemsSource = new[] { "正序", "倒序", "随机" },
+                SelectedIndex = Preferences.NewsFileReadOrder switch { "reverse" => 1, "random" => 2, _ => 0 },
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+            fileNewsSettings.Children.Add(fileReadOrder);
+            fileNewsSettings.Children.Add(new TextBlock { Text = "每次读取行数", Margin = new Thickness(0, 8, 0, 2) });
+            var fileLinesPerRead = new ComboBox
+            {
+                ItemsSource = Enumerable.Range(1, 20).Select(value => value.ToString()).ToArray(),
+                SelectedIndex = Math.Clamp(Preferences.NewsFileLinesPerRead, 1, 20) - 1,
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+            fileNewsSettings.Children.Add(fileLinesPerRead);
+            body.Children.Add(fileNewsSettings);
             void RefreshNewsLocation() {
-                newsLocationLabel.Text = Preferences.NewsSource switch { "file" => "新闻文件路径（RSS/Atom 或 JSON）", "api" => "新闻 API 地址（RSS/Atom 或 JSON）", _ => "使用内置科技新闻" };
+                newsLocationLabel.Text = Preferences.NewsSource switch { "file" => "主题灵感文件路径（每行一条，也支持 RSS/Atom 或 JSON）", "api" => "新闻 API 地址（RSS/Atom 或 JSON）", _ => "使用内置科技新闻" };
                 bool customLocation = Preferences.NewsSource is "file" or "api";
                 newsLocationLabel.IsVisible = customLocation;
                 newsLocation.Text = CurrentNewsLocation();
                 newsLocation.IsVisible = customLocation;
                 newsLocation.IsEnabled = Preferences.PublicInfo && Preferences.NewsEnabled && customLocation;
+                bool fileSource = Preferences.NewsSource == "file";
+                fileNewsSettings.IsVisible = fileSource;
+                fileReadOrder.IsEnabled = fileLinesPerRead.IsEnabled = Preferences.PublicInfo && Preferences.NewsEnabled && fileSource;
                 source.IsEnabled = Preferences.PublicInfo && Preferences.NewsEnabled;
                 chatty.IsEnabled = Preferences.PublicInfo && Preferences.NewsEnabled;
                 if (weatherEnabled != null) weatherEnabled.IsEnabled = Preferences.PublicInfo;
@@ -331,10 +353,22 @@ internal sealed partial class LinuxPetWindow
             body.Children.Remove(publicInfoToggle);
             body.Children.Insert(publicInfoIndex, publicInfoToggle);
             source.SelectionChanged += (_, _) => RefreshNewsLocation();
+            fileReadOrder.SelectionChanged += (_, _) =>
+            {
+                Preferences.NewsFileReadOrder = fileReadOrder.SelectedIndex switch { 1 => "reverse", 2 => "random", _ => "forward" };
+                brain.RefreshNews();
+                Save();
+            };
+            fileLinesPerRead.SelectionChanged += (_, _) =>
+            {
+                if (fileLinesPerRead.SelectedIndex < 0) return;
+                Preferences.NewsFileLinesPerRead = fileLinesPerRead.SelectedIndex + 1;
+                brain.RefreshNews();
+                Save();
+            };
             publicInfoToggle.IsCheckedChanged += (_, _) => RefreshNewsLocation();
             newsEnabled.IsCheckedChanged += (_, _) => RefreshNewsLocation();
             newsLocation.LostFocus += (_, _) => { var value = newsLocation.Text?.Trim() ?? ""; switch (Preferences.NewsSource) { case "file": Preferences.NewsFilePath = value; break; case "api": Preferences.NewsApiUrl = value; break; } brain.RefreshNews(); Save(); };
-            body.Children.Add(newsLocation);
             RefreshNewsLocation();
             Toggle("感知当前前台应用", Preferences.ForegroundEnabled, value => { Preferences.ForegroundEnabled = value; ApplySettings(); });
 #if !COMPANION_SAFE

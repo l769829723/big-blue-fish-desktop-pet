@@ -48,6 +48,24 @@ internal static class NewsVerification
         var items = CompanionNews.ReadFeed(feed, now);
         Check(items.Length == 2 && items.Any(i => i.Title == "短标题"), "headlines no longer require length, keywords or certainty filters; freshness and deduplication retained");
         Check(items[0].Summary == "原文 传闻 & 摘要" && items[0].Context.Contains("科技新闻"), "news summary is readable plain text with source and date");
+        var staleItems = CompanionNews.ReadFeed(feed, now, includeStale: true);
+        Check(staleItems.Any(i => i.Title == "过期文章"), "file-backed RSS feeds retain older entries");
+        var fileItems = CompanionNews.Read("\uFEFF第一条\n第二条\n\n# 注释\n第一条\n第三条", now, includeStale: true);
+        Check(fileItems.Select(i => i.Title).SequenceEqual(new[] { "第一条", "第二条", "第三条" })
+            && fileItems.All(i => i.Source == "文件主题灵感"), "plain-text files use unique non-empty lines as inspiration items");
+        int cursor = 0;
+        var forward = CompanionNews.SelectFileItems(fileItems, "forward", 2, ref cursor);
+        var forwardNext = CompanionNews.SelectFileItems(fileItems, "forward", 2, ref cursor);
+        Check(forward.Select(i => i.Title).SequenceEqual(new[] { "第一条", "第二条" })
+            && forwardNext.Select(i => i.Title).SequenceEqual(new[] { "第三条", "第一条" }),
+            "forward selection reads the configured number of lines and cycles in order");
+        cursor = 0;
+        var reverse = CompanionNews.SelectFileItems(fileItems, "reverse", 2, ref cursor);
+        Check(reverse.Select(i => i.Title).SequenceEqual(new[] { "第三条", "第二条" }),
+            "reverse selection starts at the end and reads backward");
+        var randomSelection = CompanionNews.SelectFileItems(fileItems, "random", 3, ref cursor);
+        Check(randomSelection.Length == 3 && randomSelection.Select(i => i.Title).Distinct().Count() == 3,
+            "random selection returns the requested number without duplicates");
         var messages = CompanionBrain.BuildMessages(CompanionBrain.NewsPersona, CompanionBrain.NewsRequest(items[0].Context));
         Check(messages.Length == 2 && messages[0].role == "system" && messages[1].role == "user", "news uses standard system and user roles");
         Check(!((string)messages[0].content).Contains("语气演示") && !((string)messages[0].content).Contains("新衣服")

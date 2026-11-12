@@ -324,7 +324,7 @@ internal static class Program
                 var input = Descendants<TextBox>(inputWindow).Single();
                 const string hint = "通过鱼鱼和已连接的Agent说话";
                 var placeholder = Descendants<TextBlock>(inputWindow).Single(t => t.Text == hint);
-                Check(inputWindow.WindowStyle == System.Windows.WindowStyle.None && !inputWindow.ShowInTaskbar && inputWindow.Owner == pet && inputWindow.Topmost, "Input is a frameless pet attachment, without independent title bar or taskbar button");
+                Check(inputWindow.WindowStyle == System.Windows.WindowStyle.None && !inputWindow.ShowInTaskbar && inputWindow.Owner == null && !inputWindow.Topmost, "Input is a frameless independent non-topmost window without a taskbar button");
                 Check(inputWindow.Width <= 354 && inputWindow.Height <= 120 && placeholder.IsVisible && placeholder.Foreground == Brushes.Gray, "Compact input shows the exact gray placeholder while empty");
                 Check(GetForegroundWindow() == Handle(inputWindow) && input.IsKeyboardFocused, "Explicit double-click gives only the editor keyboard focus");
                 Render((Visual)inputWindow.Content, "mcp-input-empty.png", (int)inputWindow.ActualWidth, (int)inputWindow.ActualHeight);
@@ -343,6 +343,7 @@ internal static class Program
                 Check(!inputWindow.IsVisible && input.Text == "暂存草稿", "Pet hiding hides the attached input and retains draft");
                 Invoke("RestoreCompanion"); Pump(150); inputWindow.Activate(); input.Focus();
                 Check(inputWindow.IsVisible && input.Text == "暂存草稿", "Showing the pet restores the same attached input");
+                Check(!inputWindow.Topmost && inputWindow.Owner == null, "Restoring the pet does not promote the input window to topmost or attach it to the pet");
                 const string submitted = "主人输入的原文\n第二行：ABC <> &，都原样传递~";
                 input.Text = submitted;
                 Pump(50);

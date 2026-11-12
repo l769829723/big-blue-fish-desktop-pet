@@ -14,12 +14,12 @@ internal static class CompanionNews
     internal static bool ShouldSelect(double roll, bool chatty = false) =>
         roll >= 0 && roll < (chatty ? 1 : Probability);
 
-    internal sealed record Item(string Title, string Summary, DateTimeOffset Published)
+    internal sealed record Item(string Title, string Summary, DateTimeOffset Published, string Source = "科技新闻")
     {
-        internal string Context => $"来源：科技新闻\n发布时间：{Published.ToLocalTime():yyyy-MM-dd HH:mm}\n标题：{Title}\n新闻摘要：{Summary}";
+        internal string Context => $"来源：{Source}\n发布时间：{Published.ToLocalTime():yyyy-MM-dd HH:mm}\n标题：{Title}\n新闻摘要：{Summary}";
     }
 
-    internal static Item[] ReadFeed(string xml, DateTimeOffset now)
+    internal static Item[] ReadFeed(string xml, DateTimeOffset now, bool includeStale = false)
     {
         static string? Field(XElement item, params string[] names) => item.Elements()
             .FirstOrDefault(e => names.Contains(e.Name.LocalName, StringComparer.OrdinalIgnoreCase))?.Value;
@@ -29,21 +29,27 @@ internal static class CompanionNews
             .Select(i =>
             {
                 string? published = Field(i, "pubDate", "published", "updated");
-                return DateTimeOffset.TryParse(published, out var date)
-                    ? new Item(PlainText(Field(i, "title"), 240),
-                        PlainText(Field(i, "description", "summary", "content"), 1600), date)
-                    : null;
+                if (!DateTimeOffset.TryParse(published, out var date))
+                {
+                    if (!string.IsNullOrWhiteSpace(published)) return null;
+                    date = now;
+                }
+                return new Item(PlainText(Field(i, "title"), 240),
+                    PlainText(Field(i, "description", "summary", "content"), 1600), date);
             })
-            .Where(i => i != null && i.Published <= now && now - i.Published < TimeSpan.FromDays(2))
+            .Where(i => i != null && i.Published <= now && (includeStale || now - i.Published < TimeSpan.FromDays(2)))
             .Select(i => i!)
             .Where(i => i.Title.Length > 0)
-            .DistinctBy(i => i.Title).Take(30).ToArray();
+            .DistinctBy(i => i.Title).Take(500).ToArray();
     }
 
-    internal static Item[] Read(string content, DateTimeOffset now)
+    internal static Item[] Read(string content, DateTimeOffset now, bool includeStale = false)
     {
-        if (!content.TrimStart().StartsWith("{", StringComparison.Ordinal) && !content.TrimStart().StartsWith("[", StringComparison.Ordinal))
-            return ReadFeed(content, now);
+        string trimmed = content.TrimStart('\uFEFF').TrimStart();
+        if (trimmed.Length == 0) return [];
+        if (trimmed.StartsWith("<", StringComparison.Ordinal)) return ReadFeed(trimmed, now, includeStale);
+        if (!trimmed.StartsWith("{", StringComparison.Ordinal) && !trimmed.StartsWith("[", StringComparison.Ordinal))
+            return ReadLines(trimmed, now);
         using var doc = JsonDocument.Parse(content);
         var root = doc.RootElement;
         if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("data", out var data)) root = data;
@@ -53,8 +59,49 @@ internal static class CompanionNews
         return root.EnumerateArray().Select(x => new Item(
             PlainText(Get(x, "title"), 240), PlainText(Get(x, "summary") ?? Get(x, "description") ?? Get(x, "content"), 1600),
             DateTimeOffset.TryParse(Get(x, "published") ?? Get(x, "publishedAt") ?? Get(x, "pubDate"), out var date) ? date : now))
-            .Where(x => x.Title.Length > 0 && x.Published <= now && now - x.Published < TimeSpan.FromDays(2))
-            .DistinctBy(x => x.Title).Take(30).ToArray();
+            .Where(x => x.Title.Length > 0 && x.Published <= now && (includeStale || now - x.Published < TimeSpan.FromDays(2)))
+            .DistinctBy(x => x.Title).Take(500).ToArray();
+    }
+
+    private static Item[] ReadLines(string content, DateTimeOffset now) =>
+        content.Split('\n')
+            .Select(line => PlainText(line.Trim().TrimEnd('\r'), 1840))
+            .Where(line => line.Length > 0 && !line.StartsWith('#'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(500)
+            .Select(line => line.Length <= 240
+                ? new Item(line, "", now, "文件主题灵感")
+                : new Item(line[..240], line[240..], now, "文件主题灵感"))
+            .ToArray();
+
+    internal static Item[] SelectFileItems(Item[] items, string order, int count, ref int cursor)
+    {
+        if (items.Length == 0) return [];
+        count = Math.Min(Math.Clamp(count, 1, 20), items.Length);
+        if (order == "random")
+        {
+            var remaining = items.ToList();
+            var selected = new Item[count];
+            for (int i = 0; i < count; i++)
+            {
+                int index = Random.Shared.Next(remaining.Count);
+                selected[i] = remaining[index];
+                remaining.RemoveAt(index);
+            }
+            return selected;
+        }
+
+        int start = cursor % items.Length;
+        var result = new Item[count];
+        for (int i = 0; i < count; i++)
+        {
+            int index = order == "reverse"
+                ? (items.Length - 1 - start - i + items.Length) % items.Length
+                : (start + i) % items.Length;
+            result[i] = items[index];
+        }
+        cursor = (cursor + count) % items.Length;
+        return result;
     }
 
     private static string? Get(JsonElement item, string name)

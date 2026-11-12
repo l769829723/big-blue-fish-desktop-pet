@@ -36,13 +36,13 @@ internal sealed class CompanionComposition : IDisposable
             bool down=message is 0x201 or 0x203 or 0x204 or 0x206;
             bool up=message is 0x202 or 0x205;
             if(down||up)
-                RaiseButtonEvents(image,message);
+                RaiseButtonEvents(owner,message);
             else if(message==0x200)image.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice,Environment.TickCount){RoutedEvent=Mouse.PreviewMouseMoveEvent});
         }
         catch(Exception e){try{DiagnosticLog.Write(DiagnosticEvent.AnimationFailed, kind: "permission", error: e);}catch{}}
         finally{if(sprite!=null)sprite.IsNativeInput=false;try{if(owner is MainWindow fish)fish.TraceCompanionPointer(message,buttons);}catch{}}
     }
-    internal static void RaiseButtonEvents(Image image,uint message)
+    internal static void RaiseButtonEvents(UIElement target,uint message)
     {
         bool down=message is 0x201 or 0x203 or 0x204 or 0x206;
         bool up=message is 0x202 or 0x205;
@@ -56,7 +56,7 @@ internal sealed class CompanionComposition : IDisposable
             0x205=>UIElement.PreviewMouseRightButtonUpEvent,
             _=>throw new ArgumentOutOfRangeException(nameof(message))
         };
-        image.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice,Environment.TickCount,button)
+        target.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice,Environment.TickCount,button)
         {RoutedEvent=routedEvent});
     }
     internal void Attach(IntPtr swapchain,bool mirror)

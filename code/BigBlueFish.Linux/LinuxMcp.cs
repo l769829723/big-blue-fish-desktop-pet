@@ -186,7 +186,7 @@ internal sealed partial class LinuxPetWindow
     bool TryOpenMcpInput()
     {
         if (!McpInputAvailable || closed || phase == "Exit") return false;
-        if (mcpInput != null) { mcpInput.Show(this); mcpInput.Activate(); return true; }
+        if (mcpInput != null) { mcpInput.Show(); mcpInput.Activate(); return true; }
         const string hint = "通过鱼鱼和已连接的Agent说话";
         var text = new TextBox { AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, MaxLength = 4000,
             Height = 56, Padding = new Thickness(0, 2, 22, 0), FontSize = 14, Foreground = Hair,
@@ -200,7 +200,7 @@ internal sealed partial class LinuxPetWindow
             BorderBrush = Hair, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(12), Child = panel };
         var dialog = new Window { Title = "蓝色大肥鱼 · 输入", Width = 354, Height = 120,
             WindowDecorations = WindowDecorations.None, CanResize = false, ShowInTaskbar = false, ShowActivated = false,
-            Topmost = true, Background = Avalonia.Media.Brushes.Transparent, TransparencyLevelHint = [WindowTransparencyLevel.Transparent], Content = frame };
+            Topmost = false, Background = Avalonia.Media.Brushes.Transparent, TransparencyLevelHint = [WindowTransparencyLevel.Transparent], Content = frame };
         var close = new Button { Content = "×", Width = 20, Height = 20, Padding = new Thickness(0), FontSize = 16,
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
             Foreground = Hair, Background = Avalonia.Media.Brushes.Transparent, BorderThickness = new Thickness(0) };
@@ -229,7 +229,7 @@ internal sealed partial class LinuxPetWindow
                 int y = Position.Y + (int)((bubbleReservedHeight + SpriteSize * 336 / 360) * scale) - height;
                 dialog.Position = new(Math.Clamp(x, area.X + gap, Math.Max(area.X + gap, area.Right - width - gap)),
                     Math.Clamp(y, area.Y + gap, Math.Max(area.Y + gap, area.Bottom - height - gap)));
-                if (!dialog.IsVisible) dialog.Show(this);
+                if (!dialog.IsVisible) dialog.Show();
             } finally { positioning = false; }
         }
         EventHandler<PixelPointEventArgs> moved = (_, _) => Follow();

@@ -109,24 +109,33 @@ internal static partial class Program
         }
         Console.WriteLine($"Bubble scale: {checks} real WPF checks passed.");
     }
-    static void VerifyNativeMouseRouting()
+    static void VerifyNativeMouseRouting(MainWindow window)
     {
-        var root=new Grid();
-        var image=new Image();
-        root.Children.Add(image);
+        var image=(CompanionSpriteImage)Read(window,"videoImage");
+        var oldCursor=System.Windows.Forms.Cursor.Position;
+        var point=image.PointToScreen(new Point(image.ActualWidth/2,image.ActualHeight*.68));
+        Check(SetCursorPos((int)point.X,(int)point.Y),"move pointer over the visible pet before routing native input");
+        Pump(100);
         bool leftDown=false,rightDown=false,leftUp=false,rightUp=false,genericButton=false;
-        root.AddHandler(UIElement.PreviewMouseLeftButtonDownEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>leftDown=true),true);
-        root.AddHandler(UIElement.PreviewMouseRightButtonDownEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>rightDown=true),true);
-        root.AddHandler(UIElement.PreviewMouseLeftButtonUpEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>leftUp=true),true);
-        root.AddHandler(UIElement.PreviewMouseRightButtonUpEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>rightUp=true),true);
-        root.AddHandler(System.Windows.Input.Mouse.PreviewMouseDownEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>genericButton=true),true);
-        root.AddHandler(System.Windows.Input.Mouse.PreviewMouseUpEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>genericButton=true),true);
-        CompanionComposition.RaiseButtonEvents(image,0x201);
-        CompanionComposition.RaiseButtonEvents(image,0x204);
-        CompanionComposition.RaiseButtonEvents(image,0x202);
-        CompanionComposition.RaiseButtonEvents(image,0x205);
-        Check(leftDown&&rightDown&&leftUp&&rightUp&&!genericButton,"native surface raises the dedicated left/right events without a generic event intercepting them");
+        window.AddHandler(UIElement.PreviewMouseLeftButtonDownEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>leftDown=true),true);
+        window.AddHandler(UIElement.PreviewMouseRightButtonDownEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>rightDown=true),true);
+        window.AddHandler(UIElement.PreviewMouseLeftButtonUpEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>leftUp=true),true);
+        window.AddHandler(UIElement.PreviewMouseRightButtonUpEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>rightUp=true),true);
+        window.AddHandler(System.Windows.Input.Mouse.PreviewMouseDownEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>genericButton=true),true);
+        window.AddHandler(System.Windows.Input.Mouse.PreviewMouseUpEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>genericButton=true),true);
+        CompanionComposition.RaiseButtonEvents(window,0x201);
+        Check(leftDown&&Property<bool>(window,"dragging"),"native left-button event reaches the pet window and starts dragging");
+        CompanionComposition.RaiseButtonEvents(window,0x202);
+        Check(leftUp&&!Property<bool>(window,"dragging"),"native left-button release reaches the pet window and ends dragging");
+        CompanionComposition.RaiseButtonEvents(window,0x204);
+        Check(rightDown&&((ContextMenu)Read(window,"companionContextMenu")).IsOpen,"native right-button event reaches the pet window and opens its menu");
+        CompanionComposition.RaiseButtonEvents(window,0x205);
+        Check(rightUp&&!genericButton,"native button events reach pet handlers without generic preview events intercepting them");
+        ((ContextMenu)Read(window,"companionContextMenu")).IsOpen=false;
+        SetCursorPos(oldCursor.X,oldCursor.Y);
     }
+    [System.Runtime.InteropServices.DllImport("user32.dll",SetLastError=true)]
+    static extern bool SetCursorPos(int x,int y);
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern IntPtr GetForegroundWindow();
     [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint="GetWindowLongPtrW")]
@@ -276,6 +285,11 @@ internal static partial class Program
             native.GetField("TestPowerOverride",Access)!.SetValue(null,false);
             w=new MainWindow();w.Show();Wait(()=>(bool)Read(w,"companionReady"),10,"video load");
             ((DispatcherTimer)Read(w,"companionTimer")).Stop();
+            if(args.Contains("--native-mouse-routing"))
+            {
+                Wait(()=>(string)Read(w,"animationPhase")!="Startup",10,"startup finishes before native mouse routing verification");
+                VerifyNativeMouseRouting(w);Field(w,"exitReady",true);w.Close();return 0;
+            }
             if(args.Contains("--mixed-dpi"))
             {
                 Wait(()=>(string)Read(w,"animationPhase")!="Startup",10,"startup finishes before mixed-DPI verification");

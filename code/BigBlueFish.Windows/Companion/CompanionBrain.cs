@@ -12,6 +12,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml;
 
 namespace BigBlueFish.Windows;
 internal sealed class CompanionBrain : IDisposable
@@ -44,6 +45,7 @@ internal sealed class CompanionBrain : IDisposable
     private readonly Func<double> newsRoll;
     private string lastNewsTitle = "";
     private string? lastNewsFailure;
+    private int fileNewsCursor;
     private const string ExternalApiNotice = "模型配置有误，请检查本地 API 地址和服务状态。";
     internal string Status { get; private set; } = "等待说话时启动";
     internal bool Busy { get; private set; }
@@ -54,6 +56,8 @@ internal sealed class CompanionBrain : IDisposable
     internal string WeatherRegionCode { get; set; } = CompanionRegions.DefaultCode;
     internal Func<string>? NewsLocation { get; set; }
     internal Func<string>? NewsSource { get; set; }
+    internal Func<string>? NewsFileReadOrder { get; set; }
+    internal Func<int>? NewsFileLinesPerRead { get; set; }
     internal bool SpeakAsOwner { get; set; }
     internal string SpeakerRoleName { get; set; } = "主人（电脑使用者本人）";
     internal string OwnerPrompt { get; set; } = CompanionDialogue.OwnerPromptDefault;
@@ -439,6 +443,7 @@ internal sealed class CompanionBrain : IDisposable
         newsExpires = DateTime.MinValue;
         lastNewsTitle = "";
         lastNewsFailure = null;
+        fileNewsCursor = 0;
     }
 
     private string WeatherContext() => weather.CachedContext(WeatherRegionCode);
@@ -590,18 +595,17 @@ internal sealed class CompanionBrain : IDisposable
     private async Task<CompanionNews.Item?> NewsItem(CancellationToken token)
     {
         lastNewsFailure = null;
+        string source = NewsSource?.Invoke() ?? "builtin";
         if (DateTime.UtcNow >= newsExpires)
         {
-            string source = "builtin";
             try
             {
                 DiagnosticLog.Write(DiagnosticEvent.NewsFetch);
-                source = NewsSource?.Invoke() ?? "builtin";
                 string location = NewsLocation?.Invoke() ?? "https://www.ithome.com/rss/";
                 string content;
                 if (source == "file")
                 {
-                    if (string.IsNullOrWhiteSpace(location)) throw new InvalidDataException("新闻文件路径为空");
+                    if (string.IsNullOrWhiteSpace(location)) throw new ArgumentException("新闻文件路径为空");
                     content = await File.ReadAllTextAsync(location, token);
                 }
                 else
@@ -613,8 +617,9 @@ internal sealed class CompanionBrain : IDisposable
                     r.EnsureSuccessStatusCode();
                     content = await r.Content.ReadAsStringAsync(token);
                 }
-                newsItems = CompanionNews.Read(content, DateTimeOffset.UtcNow);
+                newsItems = CompanionNews.Read(content, DateTimeOffset.UtcNow, includeStale: source == "file");
                 if (newsItems.Length == 0) throw new InvalidDataException("新闻源未返回可用条目");
+                if (source != "file") newsItems = newsItems.Take(30).ToArray();
                 newsExpires = DateTime.UtcNow.AddMinutes(45);
             }
             catch (Exception e)when (e is not OperationCanceledException)
@@ -622,7 +627,7 @@ internal sealed class CompanionBrain : IDisposable
                 DiagnosticLog.Write(DiagnosticEvent.NewsFailed, error: e);
                 lastNewsFailure = source switch
                 {
-                    "file" => "新闻文件读取失败，请检查路径和 RSS/JSON 格式。",
+                    "file" => FileNewsFailure(e),
                     "api" => "新闻 API 读取失败，请检查地址和 RSS/JSON 响应。",
                     _ => "内置新闻源暂时不可用，本轮先跳过新闻。"
                 };
@@ -631,10 +636,32 @@ internal sealed class CompanionBrain : IDisposable
             }
         }
 
+        if (source == "file")
+        {
+            if (newsItems.Length == 0) return null;
+            string order = NewsFileReadOrder?.Invoke() ?? "forward";
+            int count = Math.Clamp(NewsFileLinesPerRead?.Invoke() ?? 3, 1, 20);
+            var selected = CompanionNews.SelectFileItems(newsItems, order, count, ref fileNewsCursor);
+            string summary = string.Join("\n", selected.Select(item =>
+                item.Summary.Length == 0 ? item.Title : $"{item.Title}：{item.Summary}"));
+            return new CompanionNews.Item(selected.Length == 1 ? selected[0].Title : "本轮主题灵感",
+                summary, selected.Max(item => item.Published), selected[0].Source);
+        }
+
         var candidates = newsItems.Where(i => i.Title != lastNewsTitle
             && DateTimeOffset.UtcNow - i.Published < TimeSpan.FromDays(2)).ToArray();
         return candidates.Length == 0 ? null : candidates[Random.Shared.Next(candidates.Length)];
     }
+
+    private static string FileNewsFailure(Exception error) => error switch
+    {
+        FileNotFoundException or DirectoryNotFoundException => "新闻文件或所在目录不存在，请填写完整路径。",
+        UnauthorizedAccessException => "没有权限读取新闻文件，请检查文件权限。",
+        JsonException or XmlException => "新闻文件格式无法解析；支持纯文本（每行一条）、RSS/Atom XML 或 JSON。",
+        InvalidDataException => "新闻文件没有可用内容；请检查文件是否为空以及每行或 RSS/JSON 条目。",
+        ArgumentException or NotSupportedException => "新闻文件路径无效，请填写可读取文件的完整路径。",
+        _ => "新闻文件读取失败，请检查完整路径、文件权限和纯文本/RSS/JSON 格式。"
+    };
 
     internal sealed record AgentBriefMaterial(string Text, bool ObserveScreen);
     private string AgentBrief(string persona, string request = "") => (SpeakAsOwner

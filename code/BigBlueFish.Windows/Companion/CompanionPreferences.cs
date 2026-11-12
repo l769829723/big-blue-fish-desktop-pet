@@ -50,6 +50,8 @@ internal sealed class CompanionPreferences
     }
     public string NewsSource { get; set; } = "builtin";
     public string NewsFilePath { get; set; } = "";
+    public string NewsFileReadOrder { get; set; } = "forward";
+    public int NewsFileLinesPerRead { get; set; } = 3;
     public string NewsApiUrl { get; set; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
     public string NewsLocation { get; set; } = "";
@@ -189,6 +191,8 @@ internal sealed class CompanionPreferences
                     s.ModelBackend = s.ModelBackend == "api" ? "api" : "builtin";
                     if (s.ModelBackend == "api") s.GpuEnabled = s.StopModelOnBattery = false;
                     s.NewsSource = s.NewsSource is "file" or "api" ? s.NewsSource : "builtin";
+                    s.NewsFileReadOrder = s.NewsFileReadOrder is "reverse" or "random" ? s.NewsFileReadOrder : "forward";
+                    s.NewsFileLinesPerRead = Math.Clamp(s.NewsFileLinesPerRead, 1, 20);
                     s.CustomRoles ??= [];
                     s.CustomRoles = s.CustomRoles
                         .Where(role => role != null && !string.IsNullOrWhiteSpace(role.Id)

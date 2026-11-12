@@ -148,7 +148,9 @@ public partial class MainWindow
             StopOnBattery = preferences.StopModelOnBattery,
             WeatherRegionCode = preferences.WeatherRegionCode,
             NewsSource = () => preferences.NewsSource,
-            NewsLocation = () => preferences.ActiveNewsLocation
+            NewsLocation = () => preferences.ActiveNewsLocation,
+            NewsFileReadOrder = () => preferences.NewsFileReadOrder,
+            NewsFileLinesPerRead = () => preferences.NewsFileLinesPerRead
         };
         preferences.ApplySpeakerRole(brain);
         InitializeComponent();
