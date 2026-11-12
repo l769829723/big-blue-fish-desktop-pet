@@ -2,6 +2,7 @@ using Microsoft.Win32;
 using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -25,6 +26,10 @@ public partial class MainWindow
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpFrameChanged = 0x0020;
+    private static readonly uint TaskbarCreatedMessage = RegisterWindowMessage("TaskbarCreated");
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint RegisterWindowMessage(string message);
 
     private CompanionPreferences preferences = null !;
     private CompanionBrain brain = null !;
@@ -167,8 +172,8 @@ public partial class MainWindow
             iconImage.Freeze();
             Icon = iconImage;
         }
-        // Keep the pet as a normal app window so external capture APIs and
-        // window pickers can enumerate its HWND. Tool windows are commonly filtered.
+        // Keep a normal app-window HWND for capture enumeration; the Shell taskbar
+        // button is suppressed separately so capture tools can still find the pet.
         ShowInTaskbar = true;
         Topmost = true;
         Title = "蓝色大肥鱼";
@@ -268,7 +273,9 @@ public partial class MainWindow
         Loaded += async (_, _) =>
         {
             InstallCompanionHook();
+            ScheduleHideFromTaskbar();
             await LoadCompanionAnimations();
+            ScheduleHideFromTaskbar();
             if (preferences.CheckUpdatesOnStartup && !App.Args.Contains("--test-mode"))
             {
                 await Task.Delay(3000);
@@ -327,7 +334,26 @@ public partial class MainWindow
             return;
         hookInstalled = true;
         EnsureCaptureDiscoverableStyle(h);
+        ScheduleHideFromTaskbar();
         HwndSource.FromHwnd(h)?.AddHook(CompanionWndProc);
+    }
+
+    private void ScheduleHideFromTaskbar()
+    {
+        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero || companionClosed)
+                return;
+            try
+            {
+                CompanionTaskbar.HideButton(hwnd);
+            }
+            catch (Exception e)
+            {
+                DiagnosticLog.Write(DiagnosticEvent.VisibilityChanged, kind: "taskbar", state: "failed", error: e);
+            }
+        }));
     }
 
     private void EnsureCaptureDiscoverableStyle(IntPtr hwnd)
@@ -344,11 +370,19 @@ public partial class MainWindow
     internal void EnsureCaptureWindowDiscoverable()
     {
         ShowInTaskbar = true;
-        EnsureCaptureDiscoverableStyle(new WindowInteropHelper(this).Handle);
+        var hwnd = new WindowInteropHelper(this).Handle;
+        EnsureCaptureDiscoverableStyle(hwnd);
+        ScheduleHideFromTaskbar();
     }
 
     private IntPtr CompanionWndProc(IntPtr hwnd, int msg, IntPtr w, IntPtr l, ref bool handled)
     {
+        if ((uint)msg == TaskbarCreatedMessage)
+        {
+            ScheduleHideFromTaskbar();
+            return IntPtr.Zero;
+        }
+
         if (msg == 0x21)
         {
             handled = true;

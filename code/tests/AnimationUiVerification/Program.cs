@@ -168,7 +168,7 @@ internal static partial class Program
         Check(settings.WindowState==WindowState.Maximized&&GetForegroundWindow()==Handle(settings),"reopening maximized settings preserves maximized state");
         settings.Close();other.Activate();Pump();
         var petStyle=GetWindowStyle(Handle(w),-20).ToInt64();
-        Check(w.Topmost&&!w.ShowActivated&&w.ShowInTaskbar&&(petStyle&0x08040000)==0x08040000,"pet remains a discoverable topmost non-activating capture window");
+        Check(w.Topmost&&!w.ShowActivated&&w.ShowInTaskbar&&(petStyle&0x08040000)==0x08040000,"pet keeps its enumerable app-window style and remains topmost/non-activating while its taskbar button is suppressed");
         SetWindowPos(Handle(w),new IntPtr(-2),0,0,0,0,0x13);Pump();
         Invoke(w,"EnsureCompanionTopmost");
         Check(w.Topmost&&(GetWindowStyle(Handle(w),-20).ToInt64()&0x8)!=0,"pet restores topmost state if an external window change clears it");
