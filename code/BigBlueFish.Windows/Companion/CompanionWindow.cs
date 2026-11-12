@@ -18,6 +18,7 @@ public partial class MainWindow
     private const int GwlExStyle = -20;
     private const long WsExToolWindow = 0x00000080L;
     private const long WsExAppWindow = 0x00040000L;
+    private const long WsExTopmost = 0x00000008L;
     private const long WsExNoActivate = 0x08000000L;
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoMove = 0x0002;
@@ -94,8 +95,21 @@ public partial class MainWindow
             CompanionEdgeLayout.Refresh(this);
         }
         else if (!show && IsVisible) { InvalidateSpeechRequests(); CompanionEdgeLayout.Hide(this); Hide(); }
-        if (show) CompanionEdgeLayout.CheckVirtualDesktop(this);
+        if (show) { EnsureCompanionTopmost(); CompanionEdgeLayout.CheckVirtualDesktop(this); }
         if (videoPlayer != null) videoPlayer.Paused = !exitAnimation && !show;
+    }
+
+    private void EnsureCompanionTopmost()
+    {
+        var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (handle == IntPtr.Zero) return;
+        long style = CompanionNative.GetStyle(handle, GwlExStyle).ToInt64();
+        if (Topmost && (style & WsExTopmost) != 0) return;
+        Topmost = true;
+        if (!CompanionNative.SetWindowPos(handle, new IntPtr(-1), 0, 0, 0, 0,
+            SwpNoMove | SwpNoSize | SwpNoActivate))
+            DiagnosticLog.Write(DiagnosticEvent.VisibilityChanged, kind: "topmost", state: "failed",
+                error: new System.ComponentModel.Win32Exception(System.Runtime.InteropServices.Marshal.GetLastWin32Error()));
     }
     private readonly IntPtr startupForeground = CompanionNative.GetForegroundWindow();
     private IntPtr lastExternalForeground;

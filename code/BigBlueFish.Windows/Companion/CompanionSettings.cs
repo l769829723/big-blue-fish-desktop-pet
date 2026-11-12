@@ -227,10 +227,12 @@ public partial class MainWindow
         string displayedRoleId = preferences.SpeakerRole;
         var rolePromptEditors = new TextBox[3];
         var rolePromptHeaders = new TextBlock[3];
+        var rolePromptResets = new Button[3];
         int SelectedRoleIndex() => speakerRole.SelectedIndex;
         CompanionRoleProfile? ActiveRole() => SelectedRoleIndex() >= 2 && SelectedRoleIndex() - 2 < preferences.CustomRoles.Count
             ? preferences.CustomRoles[SelectedRoleIndex() - 2] : null;
         string[] RoleOptions() => new[] { "助手（默认）", "主人" }.Concat(preferences.CustomRoles.Select(role => role.Name)).ToArray();
+        bool IsRolePromptEditable(string roleId) => roleId != "assistant";
         int RoleIndex() => preferences.SpeakerRole == "assistant" ? 0
             : preferences.SpeakerRole == "owner" ? 1
             : Math.Max(0, preferences.CustomRoles.FindIndex(role => role.Id == preferences.SpeakerRole) + 2);
@@ -245,9 +247,11 @@ public partial class MainWindow
             for (int i = 0; i < rolePromptEditors.Length; i++)
             {
                 string suffix = i switch { 0 => "普通说话提示词", 1 => "天气提示词", _ => "科技新闻提示词" };
-                string label = profile == null ? "主人" + suffix : profile.Name + suffix;
+                string label = displayedRoleId == "assistant" ? "鱼鱼助手（内置）" + suffix : profile == null ? "主人" + suffix : profile.Name + suffix;
                 rolePromptHeaders[i].Text = label;
                 rolePromptEditors[i].Text = RolePrompt(displayedRoleId, i);
+                rolePromptEditors[i].IsEnabled = IsRolePromptEditable(displayedRoleId);
+                rolePromptResets[i].IsEnabled = IsRolePromptEditable(displayedRoleId);
                 System.Windows.Automation.AutomationProperties.SetName(rolePromptEditors[i], label);
             }
         }
@@ -265,6 +269,13 @@ public partial class MainWindow
         CompanionRoleProfile? RoleProfile(string roleId) => preferences.CustomRoles.FirstOrDefault(role => role.Id == roleId);
         string RolePrompt(string roleId, int index)
         {
+            if (roleId == "assistant")
+                return index switch
+                {
+                    0 => CompanionBrain.FixedSpeechInstructions(CompanionBrain.InputMode == "OCR" ? CompanionBrain.OcrPersona : CompanionBrain.Persona),
+                    1 => CompanionBrain.WeatherPersona,
+                    _ => CompanionBrain.NewsPersona
+                };
             var profile = RoleProfile(roleId);
             if (profile != null) return index switch { 0 => profile.Prompt, 1 => profile.WeatherPrompt, _ => profile.NewsPrompt };
             return index switch { 0 => preferences.OwnerPrompt, 1 => preferences.OwnerWeatherPrompt, _ => preferences.OwnerNewsPrompt };
@@ -281,6 +292,7 @@ public partial class MainWindow
         }
         void SaveRolePrompt(string roleId, int index, string text)
         {
+            if (!IsRolePromptEditable(roleId)) return;
             var profile = RoleProfile(roleId);
             if (profile != null)
             {
@@ -300,6 +312,7 @@ public partial class MainWindow
         }
         void CommitRolePrompts()
         {
+            if (!IsRolePromptEditable(displayedRoleId)) return;
             bool changed = false;
             var profile = RoleProfile(displayedRoleId);
             for (int i = 0; i < rolePromptEditors.Length; i++)
@@ -409,6 +422,7 @@ public partial class MainWindow
         {
             var header = new DockPanel { Margin = new Thickness(0, 8, 0, 4) };
             var reset = new Button { Content = "恢复默认", Padding = new Thickness(8, 3, 8, 3), HorizontalAlignment = HorizontalAlignment.Right };
+            rolePromptResets[index] = reset;
             reset.ToolTip = suffix;
             DockPanel.SetDock(reset, Dock.Right);
             header.Children.Add(reset);
@@ -430,6 +444,7 @@ public partial class MainWindow
             p.Children.Add(editor);
             void SavePrompt(string roleId, string text)
             {
+                if (!IsRolePromptEditable(roleId)) return;
                 if (string.IsNullOrWhiteSpace(text) && index != 1) text = DefaultRolePrompt(roleId, index);
                 editor.Text = text;
                 SaveRolePrompt(roleId, index, text);

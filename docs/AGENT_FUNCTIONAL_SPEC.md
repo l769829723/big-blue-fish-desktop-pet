@@ -23,7 +23,7 @@ Windows 使用 `Local\BlueWhaleCompanion` 互斥量限制同一登录会话中�
 | PublicInfo | true | 天气与主题灵感总开关；切换时同步两个子选项 |
 | Chatty | false | 随聊；开启时每轮自动说话都尝试选取主题灵感，关闭时为3% |
 | SpeakerRole | assistant | `assistant` 使用默认鱼鱼助手身份；`owner` 以电脑使用者本人身份结合当前材料向其他人发言 |
-| OwnerPrompt | 内置主人普通说话提示词 | 主人角色的普通屏幕对话 system 提示词；角色定位页可编辑并恢复默认 |
+| OwnerPrompt | 内置主人普通说话提示词 | 主人角色的普通屏幕对话 system 提示词；角色定位页可编辑并恢复默认。鱼鱼助手使用内置人设提示词并在角色定位页只读展示 |
 | OwnerWeatherPrompt | 内置主人天气提示词 | 追加到主人普通提示词后的天气要求 |
 | OwnerNewsPrompt | 内置主人科技新闻提示词 | 主人角色新闻专用 system 提示词 |
 | ForegroundEnabled | true | 自主生成时读取当前前台内容 |

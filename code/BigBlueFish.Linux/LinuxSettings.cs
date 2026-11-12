@@ -157,6 +157,7 @@ internal sealed partial class LinuxPetWindow
             Button addRole = null!, removeRole = null!;
             var rolePromptEditors = new TextBox[3];
             var rolePromptHeaders = new TextBlock[3];
+            var rolePromptResets = new Button[3];
             bool updatingRoleControls = false;
             string displayedRoleId = Preferences.SpeakerRole;
             var roleActions = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
@@ -182,7 +183,13 @@ internal sealed partial class LinuxPetWindow
                 Save();
             }
             CompanionRoleProfile? RoleProfile(string roleId) => Preferences.CustomRoles.FirstOrDefault(role => role.Id == roleId);
+            bool IsRolePromptEditable(string roleId) => roleId != "assistant";
             string RolePrompt(string roleId, int index) {
+                if (roleId == "assistant") return index switch {
+                    0 => CompanionBrain.FixedSpeechInstructions(CompanionBrain.InputMode == "OCR" ? CompanionBrain.OcrPersona : CompanionBrain.Persona),
+                    1 => CompanionBrain.WeatherPersona,
+                    _ => CompanionBrain.NewsPersona
+                };
                 var profile = RoleProfile(roleId);
                 if (profile != null) return index switch { 0 => profile.Prompt, 1 => profile.WeatherPrompt, _ => profile.NewsPrompt };
                 return index switch { 0 => Preferences.OwnerPrompt, 1 => Preferences.OwnerWeatherPrompt, _ => Preferences.OwnerNewsPrompt };
@@ -196,6 +203,7 @@ internal sealed partial class LinuxPetWindow
                 return index switch { 0 => CompanionDialogue.OwnerPromptDefault, 1 => CompanionDialogue.OwnerWeatherPromptDefault, _ => CompanionDialogue.OwnerNewsPromptDefault };
             }
             void SaveRolePrompt(string roleId, int index, string text) {
+                if (!IsRolePromptEditable(roleId)) return;
                 var profile = RoleProfile(roleId);
                 if (profile != null) {
                     if (index == 0) profile.Prompt = text; else if (index == 1) profile.WeatherPrompt = text; else profile.NewsPrompt = text;
@@ -205,6 +213,7 @@ internal sealed partial class LinuxPetWindow
                 ApplyRoleChanges();
             }
             void CommitRolePrompts() {
+                if (!IsRolePromptEditable(displayedRoleId)) return;
                 bool changed = false;
                 var profile = RoleProfile(displayedRoleId);
                 for (int i = 0; i < rolePromptEditors.Length; i++) {
@@ -229,8 +238,10 @@ internal sealed partial class LinuxPetWindow
                 addRole.IsEnabled = Preferences.CustomRoles.Count < 20;
                 for (int i = 0; i < rolePromptEditors.Length; i++) {
                     string suffix = i switch { 0 => "普通说话提示词", 1 => "天气提示词", _ => "科技新闻提示词" };
-                    rolePromptHeaders[i].Text = profile == null ? "主人" + suffix : profile.Name + suffix;
+                    rolePromptHeaders[i].Text = displayedRoleId == "assistant" ? "鱼鱼助手（内置）" + suffix : profile == null ? "主人" + suffix : profile.Name + suffix;
                     rolePromptEditors[i].Text = RolePrompt(displayedRoleId, i);
+                    rolePromptEditors[i].IsEnabled = IsRolePromptEditable(displayedRoleId);
+                    rolePromptResets[i].IsEnabled = IsRolePromptEditable(displayedRoleId);
                 }
             }
             void RefreshRoleControls() {
@@ -275,6 +286,7 @@ internal sealed partial class LinuxPetWindow
                 var heading = rolePromptHeaders[index] = new TextBlock { VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
                 header.Children.Add(heading);
                 var reset = ActionButton("恢复默认", () => { string roleId = displayedRoleId; string value = DefaultRolePrompt(roleId, index); editor.Text = value; SaveRolePrompt(roleId, index, value); });
+                rolePromptResets[index] = reset;
                 Grid.SetColumn(reset, 1); header.Children.Add(reset); body.Children.Add(header);
                 editor.LostFocus += (_, _) => {
                     string roleId = displayedRoleId;

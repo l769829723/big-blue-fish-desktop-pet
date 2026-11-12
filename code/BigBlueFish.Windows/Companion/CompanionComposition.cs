@@ -47,22 +47,17 @@ internal sealed class CompanionComposition : IDisposable
         bool down=message is 0x201 or 0x203 or 0x204 or 0x206;
         bool up=message is 0x202 or 0x205;
         if(!down&&!up)return;
-        var args=new MouseButtonEventArgs(Mouse.PrimaryDevice,Environment.TickCount,message is 0x204 or 0x205 or 0x206?MouseButton.Right:MouseButton.Left)
-        {RoutedEvent=down?Mouse.PreviewMouseDownEvent:Mouse.PreviewMouseUpEvent};
-        image.RaiseEvent(args);
-        if(!args.Handled)
+        var button=message is 0x204 or 0x205 or 0x206?MouseButton.Right:MouseButton.Left;
+        var routedEvent=message switch
         {
-            args.RoutedEvent=message switch
-            {
-                0x201 or 0x203=>UIElement.PreviewMouseLeftButtonDownEvent,
-                0x202=>UIElement.PreviewMouseLeftButtonUpEvent,
-                0x204 or 0x206=>UIElement.PreviewMouseRightButtonDownEvent,
-                0x205=>UIElement.PreviewMouseRightButtonUpEvent,
-                _=>throw new ArgumentOutOfRangeException(nameof(message))
-            };
-            image.RaiseEvent(args);
-        }
-        if(!args.Handled){args.RoutedEvent=down?Mouse.MouseDownEvent:Mouse.MouseUpEvent;image.RaiseEvent(args);}
+            0x201 or 0x203=>UIElement.PreviewMouseLeftButtonDownEvent,
+            0x202=>UIElement.PreviewMouseLeftButtonUpEvent,
+            0x204 or 0x206=>UIElement.PreviewMouseRightButtonDownEvent,
+            0x205=>UIElement.PreviewMouseRightButtonUpEvent,
+            _=>throw new ArgumentOutOfRangeException(nameof(message))
+        };
+        image.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice,Environment.TickCount,button)
+        {RoutedEvent=routedEvent});
     }
     internal void Attach(IntPtr swapchain,bool mirror)
     {

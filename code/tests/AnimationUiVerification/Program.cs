@@ -55,8 +55,11 @@ internal static partial class Program
         var secondRole=Property<System.Collections.Generic.List<CompanionRoleProfile>>(prefs,"CustomRoles")[1];
         var prompts=Children<TextBox>(settings).Where(editor=>editor.MaxLength==16000).ToArray();
         Check(prompts.Length==3,"three role-specific prompts are visible");
-        prompts[0].Text="回归测试：默认身份普通提示词";role.SelectedIndex=2;Pump();
-        Check(Property<string>(prefs,"OwnerPrompt")==prompts[0].Text&&prompts[0].Text==firstRole.Prompt,"changing role commits the edited prompt to its original role and refreshes the editor");
+        Check(!prompts[0].IsEnabled&&prompts[0].Text==CompanionBrain.FixedSpeechInstructions(CompanionBrain.InputMode=="OCR"?CompanionBrain.OcrPersona:CompanionBrain.Persona),"assistant identity displays its distinct built-in prompt read-only");
+        role.SelectedIndex=1;Pump();
+        Check(prompts[0].IsEnabled&&prompts[0].Text==Property<string>(prefs,"OwnerPrompt"),"owner identity displays its editable prompt");
+        prompts[0].Text="回归测试：主人普通提示词";role.SelectedIndex=2;Pump();
+        Check(Property<string>(prefs,"OwnerPrompt")=="回归测试：主人普通提示词"&&prompts[0].Text==firstRole.Prompt,"changing role commits the owner prompt and refreshes the editor to the selected custom role");
         prompts[1].Text="回归测试：角色甲天气提示词";role.SelectedIndex=3;Pump();
         Check(firstRole.WeatherPrompt=="回归测试：角色甲天气提示词"&&prompts[1].Text==secondRole.WeatherPrompt,"weather prompt follows the selected role without stale focus overwriting it");
         prompts[2].Text="回归测试：角色乙新闻提示词";role.SelectedIndex=2;Pump();
@@ -111,16 +114,18 @@ internal static partial class Program
         var root=new Grid();
         var image=new Image();
         root.Children.Add(image);
-        bool leftDown=false,rightDown=false,leftUp=false,rightUp=false;
+        bool leftDown=false,rightDown=false,leftUp=false,rightUp=false,genericButton=false;
         root.AddHandler(UIElement.PreviewMouseLeftButtonDownEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>leftDown=true),true);
         root.AddHandler(UIElement.PreviewMouseRightButtonDownEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>rightDown=true),true);
         root.AddHandler(UIElement.PreviewMouseLeftButtonUpEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>leftUp=true),true);
         root.AddHandler(UIElement.PreviewMouseRightButtonUpEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>rightUp=true),true);
+        root.AddHandler(System.Windows.Input.Mouse.PreviewMouseDownEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>genericButton=true),true);
+        root.AddHandler(System.Windows.Input.Mouse.PreviewMouseUpEvent,new System.Windows.Input.MouseButtonEventHandler((_,_)=>genericButton=true),true);
         CompanionComposition.RaiseButtonEvents(image,0x201);
         CompanionComposition.RaiseButtonEvents(image,0x204);
         CompanionComposition.RaiseButtonEvents(image,0x202);
         CompanionComposition.RaiseButtonEvents(image,0x205);
-        Check(leftDown&&rightDown&&leftUp&&rightUp,"native surface forwards left/right button events to their WPF routed handlers");
+        Check(leftDown&&rightDown&&leftUp&&rightUp&&!genericButton,"native surface raises the dedicated left/right events without a generic event intercepting them");
     }
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern IntPtr GetForegroundWindow();
@@ -155,6 +160,9 @@ internal static partial class Program
         settings.Close();other.Activate();Pump();
         var petStyle=GetWindowStyle(Handle(w),-20).ToInt64();
         Check(w.Topmost&&!w.ShowActivated&&w.ShowInTaskbar&&(petStyle&0x08040000)==0x08040000,"pet remains a discoverable topmost non-activating capture window");
+        SetWindowPos(Handle(w),new IntPtr(-2),0,0,0,0,0x13);Pump();
+        Invoke(w,"EnsureCompanionTopmost");
+        Check(w.Topmost&&(GetWindowStyle(Handle(w),-20).ToInt64()&0x8)!=0,"pet restores topmost state if an external window change clears it");
         Invoke(w,"ShowCompanionNotice","主人，鱼鱼在这里呀~",false);Pump();
         Check(((Border)Read(w,"bubble")).Visibility==Visibility.Visible&&w.IsVisible,"bubble remains visible inside the captured pet window");
         Check(GetForegroundWindow()==Handle(other),"showing pet bubble does not take foreground from ordinary window");

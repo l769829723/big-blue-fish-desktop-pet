@@ -284,6 +284,7 @@ internal sealed partial class LinuxPetWindow : Window
     async Task Tick()
     {
         if (closed || phase == "Exit") return;
+        if (!Topmost) { Topmost = true; DiagnosticLog.Write(DiagnosticEvent.VisibilityChanged, kind: "topmost", state: "restored"); }
         await TestCommands(); if (closed || phase == "Exit") return;
         var now = DateTime.UtcNow;
         lastForeground = CompanionNative.ResolveForeground(CompanionNative.GetForegroundWindow(), lastForeground);

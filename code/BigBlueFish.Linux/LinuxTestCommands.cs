@@ -14,7 +14,7 @@ internal sealed partial class LinuxPetWindow
         if (!App.Args.Contains("--test-mode")) return;
         if (DateTime.UtcNow >= nextTestStatus) {
             nextTestStatus = DateTime.UtcNow.AddSeconds(1);
-            File.WriteAllText("test-status.json", JsonSerializer.Serialize(new { version = typeof(LinuxPetWindow).Assembly.GetName().Version!.ToString(3), currentAction, phase, frames = player.Frames, animationSeconds=player.PositionSeconds, animationBackend=player.Backend, player.LastReadMs, player.LastUiMs, player.LastCopyMs, player.LastShapeMs, text = bubbleText.Text, bubbleVisible = bubbleFrame.IsVisible, bubbleInPetWindow = ReferenceEquals(bubbleFrame.Parent, petCanvas), loadingInPetWindow = ReferenceEquals(loading.Parent, petCanvas), topmost = Topmost, bubbleReservedHeight, Puppet, McpAvailable, visible = IsVisible, hidden, fullscreenHidden, modelPid = brain.RunnerPid, modelBusy = brain.Busy, modelStatus = brain.Status, generating, settingsOpen = settings != null, Position.X, Position.Y }));
+            File.WriteAllText("test-status.json", JsonSerializer.Serialize(new { version = typeof(LinuxPetWindow).Assembly.GetName().Version!.ToString(3), currentAction, phase, frames = player.Frames, animationSeconds=player.PositionSeconds, animationBackend=player.Backend, player.LastReadMs, player.LastUiMs, player.LastCopyMs, player.LastShapeMs, text = bubbleText.Text, bubbleVisible = bubbleFrame.IsVisible, bubbleInPetWindow = ReferenceEquals(bubbleFrame.Parent, petCanvas), loadingInPetWindow = ReferenceEquals(loading.Parent, petCanvas), topmost = Topmost, bubbleReservedHeight, Puppet, McpAvailable, visible = IsVisible, hidden, fullscreenHidden, modelPid = brain.RunnerPid, modelBusy = brain.Busy, modelStatus = brain.Status, generating, settingsOpen = settings != null, contextMenuOpen = ContextMenu?.IsOpen == true, Position.X, Position.Y }));
         }
         if (!File.Exists("test-command.txt")) return;
         string command = File.ReadAllText("test-command.txt").Trim(); File.Delete("test-command.txt");
@@ -71,18 +71,29 @@ internal sealed partial class LinuxPetWindow
             for (int i = 0; i < editors.Length; i++)
                 Check(editors[i].Text == (Preferences.CustomRoles.FirstOrDefault(role => role.Id == roleId) is { } profile
                     ? i switch { 0 => profile.Prompt, 1 => profile.WeatherPrompt, _ => profile.NewsPrompt }
-                    : i switch { 0 => Preferences.OwnerPrompt, 1 => Preferences.OwnerWeatherPrompt, _ => Preferences.OwnerNewsPrompt }),
+                    : roleId == "assistant"
+                        ? i switch {
+                            0 => CompanionBrain.FixedSpeechInstructions(CompanionBrain.InputMode == "OCR" ? CompanionBrain.OcrPersona : CompanionBrain.Persona),
+                            1 => CompanionBrain.WeatherPersona,
+                            _ => CompanionBrain.NewsPersona
+                        }
+                        : i switch { 0 => Preferences.OwnerPrompt, 1 => Preferences.OwnerWeatherPrompt, _ => Preferences.OwnerNewsPrompt }),
                     $"prompt editor {i} follows selected role {roleId}");
         }
         roleSelect.SelectedIndex = 0;
         CheckEditorRole("assistant");
+        Check(editors.All(editor => !editor.IsEnabled), "built-in assistant prompts are shown read-only");
+        roleSelect.SelectedIndex = 1;
+        CheckEditorRole("owner");
+        Check(editors.All(editor => editor.IsEnabled), "owner prompts remain editable");
         var firstRole = Preferences.CustomRoles[^2];
         var secondRole = Preferences.CustomRoles[^1];
         int firstRoleIndex = Preferences.CustomRoles.Count;
         int secondRoleIndex = firstRoleIndex + 1;
-        editors[0].Text = "回归测试：角色甲普通提示词";
+        editors[0].Text = "回归测试：主人普通提示词";
         roleSelect.SelectedIndex = firstRoleIndex;
-        Check(firstRole.Prompt == editors[0].Text, "switch commits edited prompt to the role it was displayed for");
+        Check(Preferences.OwnerPrompt == "回归测试：主人普通提示词", "switch commits edited prompt to the owner identity");
+        Check(firstRole.Prompt == editors[0].Text, "switch refreshes prompt editor to the selected custom role");
         editors[1].Focus();
         editors[1].Text = "回归测试：角色甲天气提示词";
         roleSelect.SelectedIndex = secondRoleIndex;
