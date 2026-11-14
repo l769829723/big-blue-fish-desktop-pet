@@ -54,6 +54,7 @@ public partial class MainWindow
             if(dragging){dragging=false;if(dragged)PublishMcpInteraction("drag_end",new{Left,Top,cancelled=true});FinishDragAnimation();}
         };
         videoPlayer = new(videoImage);
+        videoPlayer.ForceSoftware = true;
         videoPlayer.Failed += error =>
         {
             DiagnosticLog.Write(DiagnosticEvent.AnimationFailed, state: "failed");

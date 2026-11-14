@@ -12,7 +12,8 @@ namespace BigBlueFish.Diagnostics;
 public enum DiagnosticEvent
 {
     AppStarted, AppStopped, AppCrashReportSaved, SettingsOpened, SettingsClosed, SettingsChanged, SettingsPageChanged, VisibilityChanged,
-    SessionRecovery, Interaction, AnimationStarted, AnimationCompleted, AnimationFailed, TrayState, AppFailed,
+    SessionRecovery, Interaction, AnimationStarted, AnimationCompleted, AnimationFailed, TrayState, AppFailed, RenderingMode,
+    CaptureHookDetected,
     SpeechRequested, SpeechSkipped, SpeechStarted, SpeechCompleted, SpeechCancelled, SpeechFailed,
     ScreenReadStarted, ScreenReadCompleted, ScreenReadFallback, BubbleShown, BubbleClosed,
     RunnerStarting, RunnerReady, RunnerStopped, RunnerFailed, RunnerCpuFallback,
@@ -41,7 +42,7 @@ public static class DiagnosticLog
         + "persona news screen image ocr text GPU CPU cache cold warm startup exit idle Event Idle Click Drag Greeting Daily Startup Exit External PuppetIdle "
         + "Outbound Return BetweenMoves click drag_start drag_end user_message daily_care speech_test weather_request wakeup start_care connect reconnect new_conversation "
         + "set_configuration authentication permission read write model mode thought_level other unavailable unsupported empty expired changed enabled disabled "
-        + "Standard Safe OCR Vision Windows Linux Preview timeout first_content hardware_fallback notice manual busy power model_missing puppet fatal dispatcher taskbar "
+        + "Standard Safe OCR Vision Windows Linux Preview timeout first_content hardware_fallback notice manual busy power model_missing puppet fatal dispatcher taskbar software enabled detected "
         + "get_settings update_settings list_actions capture_foreground capture_screen play_action interrupt_action say say_next request_local_speech "
         + "get_operation_guide get_wakeups schedule_wakeup cancel_wakeup terminal oauth restored created "
         + "claude codex gemini dsh kimi qwen antigravity copilot cursor opencode cline codebuddy qoder trae kiro pi devin grok hermes openclaw minimax").Split(' ', StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal);
@@ -239,6 +240,7 @@ public static class DiagnosticLog
         DiagnosticEvent.AppStarted => "桌宠启动", DiagnosticEvent.AppStopped => "桌宠退出", DiagnosticEvent.AppCrashReportSaved => "异常诊断快照已自动保存", DiagnosticEvent.AppFailed => "桌宠运行异常", DiagnosticEvent.TrayState => "托盘图标状态变化",
         DiagnosticEvent.SettingsOpened => "打开设置", DiagnosticEvent.SettingsClosed => "关闭设置", DiagnosticEvent.SettingsChanged => "设置已保存", DiagnosticEvent.SettingsPageChanged => "切换设置页面",
         DiagnosticEvent.VisibilityChanged => "桌宠可见状态变化", DiagnosticEvent.SessionRecovery => "恢复桌面会话并清理旧任务", DiagnosticEvent.Interaction => "收到桌宠交互",
+        DiagnosticEvent.RenderingMode => "桌宠图形兼容模式已启用", DiagnosticEvent.CaptureHookDetected => "检测到外部采集图形钩子",
         DiagnosticEvent.AnimationStarted => "开始播放动作", DiagnosticEvent.AnimationCompleted => "动作播放结束", DiagnosticEvent.AnimationFailed => "动画播放失败",
         DiagnosticEvent.SpeechRequested => "收到吐字请求", DiagnosticEvent.SpeechSkipped => "本次吐字未执行", DiagnosticEvent.SpeechStarted => "开始准备吐字",
         DiagnosticEvent.SpeechCompleted => "模型吐字生成完成", DiagnosticEvent.SpeechCancelled => "吐字已取消", DiagnosticEvent.SpeechFailed => "吐字生成失败",

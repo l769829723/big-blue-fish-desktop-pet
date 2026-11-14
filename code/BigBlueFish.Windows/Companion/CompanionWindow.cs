@@ -1,5 +1,6 @@
 using Microsoft.Win32;
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -55,6 +56,8 @@ public partial class MainWindow
     private DateTime nextWarmup = DateTime.MinValue;
     private bool hookInstalled;
     private DateTime diagnosticAt;
+    private DateTime nextCaptureHookCheck;
+    private bool captureHookReported, captureHookScanFailureReported;
     private DateTime lastClickAt;
     private Point lastClickPoint;
     private DispatcherTimer? singleClickTimer;
@@ -651,6 +654,11 @@ public partial class MainWindow
     private async void CompanionTick(object? sender, EventArgs e)
     {
         var now = DateTime.UtcNow;
+        if (now >= nextCaptureHookCheck)
+        {
+            nextCaptureHookCheck = now.AddSeconds(5);
+            CheckCaptureHookModules();
+        }
         var foreground = CompanionNative.GetForegroundWindow();
         if (CompanionNative.IsExternalForegroundCandidate(foreground))
             lastExternalForeground = foreground;
@@ -787,6 +795,36 @@ public partial class MainWindow
         }
 
         if (!ConsumeMcpSpeech() && !DispatchAgentDaily()) await SpeechCountdownZeroAsync();
+    }
+
+    private void CheckCaptureHookModules()
+    {
+        if (captureHookReported)
+            return;
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            int count = process.Modules.Cast<ProcessModule>()
+                .Count(module => module.ModuleName.StartsWith("graphics-hook", StringComparison.OrdinalIgnoreCase));
+            if (count == 0)
+                return;
+            captureHookReported = true;
+            DiagnosticLog.Write(DiagnosticEvent.CaptureHookDetected, state: "detected", count: count);
+        }
+        catch (System.ComponentModel.Win32Exception error)
+        {
+            if (captureHookScanFailureReported)
+                return;
+            captureHookScanFailureReported = true;
+            DiagnosticLog.Write(DiagnosticEvent.CaptureHookDetected, state: "failed", error: error);
+        }
+        catch (InvalidOperationException error)
+        {
+            if (captureHookScanFailureReported)
+                return;
+            captureHookScanFailureReported = true;
+            DiagnosticLog.Write(DiagnosticEvent.CaptureHookDetected, state: "failed", error: error);
+        }
     }
 
     private Task SpeechCountdownZeroAsync() => GenerateLocalSpeechAsync(false);
