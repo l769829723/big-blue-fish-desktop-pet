@@ -13,6 +13,16 @@ internal sealed class CompanionBubble : Border
     private bool pointerOnTop;
     private double pointerX = double.NaN;
 
+    internal bool PointerIsOnTop => pointerOnTop;
+
+    // The pointer leaves the bubble on the edge facing the character. Compare the
+    // two centres instead of inferring it from how far the layout was clamped:
+    // keeping the bubble visible on a monitor's top edge also moves it down, and
+    // that clamp used to flip the tip upwards although the bubble still sat above
+    // the character.
+    internal static bool PointerOnTopEdge(double bubbleTop, double bubbleHeight, Rect petBounds)
+        => bubbleTop + bubbleHeight / 2.0 > petBounds.Top + petBounds.Height / 2.0;
+
     internal CompanionBubble()
     {
         Background = new SolidColorBrush(Color.FromRgb(255, 251, 244));

@@ -162,8 +162,8 @@ public static class CompanionEdgeLayout
                 bubble.MaxHeight = Math.Max(1.0, Math.Min(naturalHeight, (pet.Height - top - 8.0) / scale));
                 bubble.Width = naturalWidth;
                 bubble.Margin = new Thickness(left, top, 0, 0);
-                bool belowPet = top > petBounds.Top - bubbleHeight - 10.0;
-                styledBubble?.PointAt((petCenterX - left) / scale, belowPet);
+                bool pointerOnTop = BigBlueFish.Windows.CompanionBubble.PointerOnTopEdge(top, bubbleHeight, petBounds);
+                styledBubble?.PointAt((petCenterX - left) / scale, pointerOnTop);
                 System.Threading.Volatile.Write(ref bubbleVisible, 1);
             }
             finally

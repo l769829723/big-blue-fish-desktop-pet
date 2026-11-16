@@ -99,6 +99,20 @@ internal static partial class Program
             var bounds=text.TransformToAncestor(w).TransformBounds(new Rect(0,0,text.ActualWidth,text.ActualHeight));
             Check(bounds.Right<=bubbleBounds.Right+1&&bounds.Bottom<=bubbleBounds.Bottom+1,$"full text fits scaled bubble pet={petScale} bubble={bubbleScale} corner={corner} bounds={bounds} bubble={bubbleBounds}");
         }
+        // Keeping the bubble visible on the monitor's top edge pushes it down, but it
+        // is still above the character: the tip must stay on its bottom edge instead
+        // of flipping upwards just because the layout had to clamp the position.
+        Set(prefs,"Scale",1.0);Invoke(w,"ApplyCompanionScale",false);slider.Value=1.0;
+        var workArea=CompanionEdgeLayout.WorkArea(w);
+        w.Top=workArea.Top+60-Property<Rect>(w,"CompanionVisibleBounds").Top;
+        Invoke(w,"ClampCompanion");
+        Invoke(w,"ShowCompanionNotice","主人，鱼鱼陪你呀~",false);Pump(120);
+        var topEdgeBubble=(CompanionBubble)bubble;
+        var topEdgeBounds=bubble.TransformToAncestor(w).TransformBounds(new Rect(0,0,bubble.ActualWidth,bubble.ActualHeight));
+        var petBody=Property<Rect>(w,"CompanionVisibleBounds");
+        Check(topEdgeBounds.Bottom<=petBody.Top+petBody.Height/2,$"top edge keeps the bubble above the character centre: {topEdgeBounds} {petBody}");
+        Check(!topEdgeBubble.PointerIsOnTop,"a bubble clamped down by the top edge still points its tip at the character");
+        Check(!CompanionBubble.PointerOnTopEdge(10,60,new Rect(0,80,180,216))&&CompanionBubble.PointerOnTopEdge(320,60,new Rect(0,80,180,216)),"pointer direction follows the side of the character the bubble is on");
         Children<Button>(bubble).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Pump();
         Check(bubble.Visibility!=Visibility.Visible,"scaled close button dismisses bubble");
         settings.Close();
@@ -351,6 +365,7 @@ internal static partial class Program
             var start=Stopwatch.StartNew();
             var welcome=(string)Invoke(w,"WelcomeText",DateTime.Now)!;
             Check(((TextBlock)Read(w,"bubbleText")).Text==welcome,"welcome appears immediately with model disabled");
+            Check(!((CompanionBubble)Read(w,"bubble")).PointerIsOnTop,"startup greeting points its tip at the character");
             foreach(var sample in new[]{(Hour:5,Period:"早上"),(Hour:10,Period:"早上"),(Hour:11,Period:"中午"),(Hour:13,Period:"中午"),(Hour:14,Period:"下午"),(Hour:17,Period:"下午"),(Hour:18,Period:"晚上"),(Hour:0,Period:"晚上")})
                 Check((string)Invoke(w,"WelcomeText",new DateTime(2026,10,14,sample.Hour,0,0))! == $"主人{sample.Period}好，鱼鱼给主人请安啦~","system time greeting boundary "+sample.Hour);
             Wait(()=>(string)Read(w,"animationPhase")!="Startup",9,"startup greeting completes at faster speed");
@@ -462,6 +477,7 @@ internal static partial class Program
             start.Restart();w.Close();Check((string)Read(w,"animationPhase")=="Exit"&&w.IsVisible,"closing farewell starts once");
             Check(Property<double>(player,"PlaybackRate")==1.5,"farewell greeting uses 1.5x playback");
             Check(((TextBlock)Read(w,"bubbleText")).Text=="主人再见~鱼鱼喜欢主人哦","farewell appears immediately with exact single tilde");
+            Check(!((CompanionBubble)Read(w,"bubble")).PointerIsOnTop,"farewell keeps its tip on the side facing the character");
             Wait(()=>!w.IsVisible,9,"farewell completed and window closed");Check(start.Elapsed.TotalSeconds>=6.5&&start.Elapsed.TotalSeconds<8,"farewell full clip finishes at 1.5x: "+start.Elapsed.TotalSeconds);
             Console.WriteLine($"Animation UI: {checks} checks passed, settings snapshots and alpha render saved to {sandbox}.");return 0;
         }
