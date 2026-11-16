@@ -504,20 +504,22 @@ internal sealed class CompanionBrain : IDisposable
     {
         var messages = BuildMessages(persona, request, image, SpeakAsOwner, OwnerPrompt, OwnerWeatherPrompt, OwnerNewsPrompt);
         LastTimings = null;
-        object payload = UseExternalApi
-            ? new
-            {
-                model = ExternalApiModelName, messages, temperature, top_p = .9,
-                max_tokens = persona == NewsPersona ? 160 : persona == WeatherPersona ? 220 : 180,
-                stream = StreamingResponses, stream_options = new { include_usage = true }
-            }
-            : new
-            {
-                model = "local", messages, temperature, top_p = .9,
-                max_tokens = persona == NewsPersona ? 160 : persona == WeatherPersona ? 220 : 180,
-                stream = StreamingResponses, cache_prompt = true,
-                stream_options = new { include_usage = true }, chat_template_kwargs = new { enable_thinking = false }
-            };
+        int budget = persona == NewsPersona ? 160 : persona == WeatherPersona ? 220 : 180;
+        // The external payload stays a dictionary so the thinking-model fallback can
+        // add reasoning_effort without rebuilding the whole request.
+        var apiPayload = UseExternalApi ? new Dictionary<string, object?>
+        {
+            ["model"] = ExternalApiModelName, ["messages"] = messages, ["temperature"] = temperature, ["top_p"] = .9,
+            ["max_tokens"] = budget,
+            ["stream"] = StreamingResponses, ["stream_options"] = new { include_usage = true }
+        } : null;
+        object payload = apiPayload ?? (object)new
+        {
+            model = "local", messages, temperature, top_p = .9,
+            max_tokens = budget,
+            stream = StreamingResponses, cache_prompt = true,
+            stream_options = new { include_usage = true }, chat_template_kwargs = new { enable_thinking = false }
+        };
         if (App.Args.Contains("--test-mode"))
         {
             try { File.WriteAllText(Path.GetFullPath("model-request.json"), JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true })); }
@@ -525,80 +527,159 @@ internal sealed class CompanionBrain : IDisposable
         }
         var endpoint = UseExternalApi ? ExternalApiEndpoint()
             : new Uri($"http://127.0.0.1:{port}/v1/chat/completions");
-        using var requestMessage = new HttpRequestMessage(HttpMethod.Post, endpoint)
-        {
-            Content = JsonContent.Create(payload)
-        };
-        using var response = await local.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead, token);
-        if (!response.IsSuccessStatusCode)
-        {
-            if (!UseExternalApi) response.EnsureSuccessStatusCode();
-            int status = (int)response.StatusCode;
-            string hint = status switch
-            {
-                401 or 403 => "需要鉴权",
-                404 => "找不到模型或接口，请核对模型名称和 /v1 地址",
-                400 => "不接受本次请求",
-                >= 500 => "服务内部出错",
-                _ => "请求失败"
-            };
-            throw new InvalidDataException(ApiErrorText($"本地 API 返回 {status}：{hint}", await ApiFailureDetail(response, token)));
-        }
-        if (!StreamingResponses)
-        {
-            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
-            if (document.RootElement.TryGetProperty("error", out var error))
-                throw new InvalidDataException(ApiErrorText("本地 API 返回错误", ApiErrorDetail(error)));
-            if (!document.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0
-                || !choices[0].TryGetProperty("message", out var message)
-                || !message.TryGetProperty("content", out var content))
-                throw new InvalidDataException("本地 API 未返回可用吐字内容，请检查模型名称和服务状态。");
-            if (document.RootElement.TryGetProperty("timings", out var timings)) LastTimings = timings.Clone();
-            return Clean(content.GetString() ?? "");
-        }
 
-        using var reader = new StreamReader(await response.Content.ReadAsStreamAsync(token));
-        var raw = new StringBuilder();
-        var lastPartial = "";
-        while (await reader.ReadLineAsync(token) is { } line)
+        var reply = await Exchange(payload);
+        if (!UseExternalApi || reply.Text.Length > 0)
+            return Clean(reply.Text);
+
+        // Thinking models such as qwen3, deepseek-r1 and gpt-oss stream their
+        // reasoning and then leave delta.content empty once the small speech
+        // budget is spent. Ask the same OpenAI-compatible server for one more
+        // answer with reasoning disabled (Ollama maps reasoning_effort=none to
+        // think=false). Servers that reject the field keep the guidance below.
+        if (reply.Reasoning)
         {
-            if (!line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-                continue;
-            var data = line[5..].Trim();
-            if (data == "[DONE]")
-                break;
+            apiPayload!["reasoning_effort"] = "none";
             try
             {
-                using var chunk = JsonDocument.Parse(data);
-                if (UseExternalApi && chunk.RootElement.TryGetProperty("error", out var streamError))
-                    throw new InvalidDataException(ApiErrorText("本地 API 返回错误", ApiErrorDetail(streamError)));
-                if (chunk.RootElement.TryGetProperty("timings", out var timings)) LastTimings = timings.Clone();
-                if (!chunk.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
-                    continue;
-                var choice = choices[0];
-                string piece = "";
-                if (choice.TryGetProperty("delta", out var delta) && delta.TryGetProperty("content", out var deltaContent))
-                    piece = deltaContent.GetString() ?? "";
-                else if (choice.TryGetProperty("message", out var message) && message.TryGetProperty("content", out var messageContent))
-                    piece = messageContent.GetString() ?? "";
-                if (piece.Length == 0)
-                    continue;
-                raw.Append(piece);
-                var partial = Clean(raw.ToString());
-                if (partial.Length > 0 && partial != lastPartial)
+                var retry = await Exchange(apiPayload!);
+                if (retry.Text.Length > 0)
+                    return Clean(retry.Text);
+            }
+            catch (Exception error) when (error is InvalidDataException or HttpRequestException)
+            {
+                throw new InvalidDataException(ThinkingOnlyNotice + "（自动关闭思考的重试失败：" + error.Message + "）");
+            }
+            throw new InvalidDataException(ThinkingOnlyNotice);
+        }
+        throw new InvalidDataException(EmptyApiReplyNotice(reply));
+
+        async Task<ApiReply> Exchange(object body)
+        {
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Post, endpoint)
+            {
+                Content = JsonContent.Create(body)
+            };
+            using var response = await local.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead, token);
+            if (!response.IsSuccessStatusCode)
+            {
+                if (!UseExternalApi) response.EnsureSuccessStatusCode();
+                int status = (int)response.StatusCode;
+                string hint = status switch
                 {
-                    lastPartial = partial;
-                    onPartial?.Invoke(partial);
+                    401 or 403 => "需要鉴权",
+                    404 => "找不到模型或接口，请核对模型名称和 /v1 地址",
+                    400 => "不接受本次请求",
+                    >= 500 => "服务内部出错",
+                    _ => "请求失败"
+                };
+                throw new InvalidDataException(ApiErrorText($"本地 API 返回 {status}：{hint}", await ApiFailureDetail(response, token)));
+            }
+            if (!StreamingResponses)
+            {
+                using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
+                if (document.RootElement.TryGetProperty("error", out var error))
+                    throw new InvalidDataException(ApiErrorText("本地 API 返回错误", ApiErrorDetail(error)));
+                if (document.RootElement.TryGetProperty("timings", out var timings)) LastTimings = timings.Clone();
+                if (!document.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
+                    return new ApiReply("", false, true, false, null);
+                var choice = choices[0];
+                if (choice.ValueKind != JsonValueKind.Object)
+                    return new ApiReply("", false, true, false, null);
+                string? finish = choice.TryGetProperty("finish_reason", out var finishReason) && finishReason.ValueKind == JsonValueKind.String
+                    ? finishReason.GetString() : null;
+                bool reasoning = false, hasContent = false;
+                string content = "";
+                if (choice.TryGetProperty("message", out var message))
+                {
+                    reasoning = HasReasoning(message);
+                    if (message.TryGetProperty("content", out var contentElement) && contentElement.ValueKind == JsonValueKind.String)
+                    {
+                        hasContent = true;
+                        content = contentElement.GetString() ?? "";
+                    }
+                }
+                return new ApiReply(content, reasoning, true, hasContent, finish);
+            }
+
+            using var reader = new StreamReader(await response.Content.ReadAsStreamAsync(token));
+            var raw = new StringBuilder();
+            var lastPartial = "";
+            bool streamed = false, sawChoices = false, reasoningSeen = false;
+            string? streamFinish = null;
+            while (await reader.ReadLineAsync(token) is { } line)
+            {
+                if (!line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var data = line[5..].Trim();
+                streamed = true;
+                if (data == "[DONE]")
+                    break;
+                try
+                {
+                    using var chunk = JsonDocument.Parse(data);
+                    if (UseExternalApi && chunk.RootElement.TryGetProperty("error", out var streamError))
+                        throw new InvalidDataException(ApiErrorText("本地 API 返回错误", ApiErrorDetail(streamError)));
+                    if (chunk.RootElement.TryGetProperty("timings", out var timings)) LastTimings = timings.Clone();
+                    if (!chunk.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
+                        continue;
+                    sawChoices = true;
+                    var choice = choices[0];
+                    if (choice.ValueKind != JsonValueKind.Object)
+                        continue;
+                    if (choice.TryGetProperty("finish_reason", out var finishElement) && finishElement.ValueKind == JsonValueKind.String)
+                        streamFinish = finishElement.GetString();
+                    string piece = "";
+                    if (choice.TryGetProperty("delta", out var delta) && delta.ValueKind == JsonValueKind.Object)
+                    {
+                        reasoningSeen |= HasReasoning(delta);
+                        if (delta.TryGetProperty("content", out var deltaContent))
+                            piece = deltaContent.GetString() ?? "";
+                    }
+                    else if (choice.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.Object)
+                    {
+                        reasoningSeen |= HasReasoning(message);
+                        if (message.TryGetProperty("content", out var messageContent))
+                            piece = messageContent.GetString() ?? "";
+                    }
+                    if (piece.Length == 0)
+                        continue;
+                    raw.Append(piece);
+                    var partial = Clean(raw.ToString());
+                    if (partial.Length > 0 && partial != lastPartial)
+                    {
+                        lastPartial = partial;
+                        onPartial?.Invoke(partial);
+                    }
+                }
+                catch (JsonException)
+                {
                 }
             }
-            catch (JsonException)
-            {
-            }
+            return new ApiReply(raw.ToString(), reasoningSeen, streamed, sawChoices, streamFinish);
         }
+    }
 
-        if (UseExternalApi && raw.Length == 0)
-            throw new InvalidDataException("本地 API 未返回可用吐字内容，请检查模型名称和服务状态。");
-        return Clean(raw.ToString());
+    private readonly record struct ApiReply(string Text, bool Reasoning, bool Streamed, bool Format, string? FinishReason);
+
+    private const string ThinkingOnlyNotice = "本地 API 只返回了模型的思考内容，没有正文：思考模型把输出预算用完了。请换用非思考模型（如 qwen2.5、llama3.1），或在 Ollama 中关闭该模型的思考后重试。";
+
+    private static bool HasReasoning(JsonElement message)
+        => NonEmpty(message, "reasoning") || NonEmpty(message, "reasoning_content");
+
+    private static bool NonEmpty(JsonElement element, string name)
+        => element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(value.GetString());
+
+    private static string EmptyApiReplyNotice(ApiReply reply)
+    {
+        if (!reply.Streamed)
+            return "本地 API 没有返回流式内容，请确认地址指向 OpenAI 兼容接口：Ollama 填 http://127.0.0.1:11434/v1，随包 llama.cpp 填 http://127.0.0.1:8080/v1。";
+        if (!reply.Format)
+            return "本地 API 返回的内容不是 chat/completions 格式，请检查地址和模型名称。";
+        if (reply.FinishReason == "length")
+            return "本地 API 的输出达到长度上限却没有正文，请检查模型名称和输出限制。";
+        return "本地 API 未返回可用吐字内容，请检查模型名称和服务状态。";
     }
 
     private string ExternalApiModelName => string.IsNullOrWhiteSpace(ExternalApiModel) ? "local" : ExternalApiModel.Trim();

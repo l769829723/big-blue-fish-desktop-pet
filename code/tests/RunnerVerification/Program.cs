@@ -60,6 +60,7 @@ internal static class Program
                     "a full chat completion endpoint is not appended twice");
                 return 0;
             }
+            if (args[0] == "--api-replies") return await ExternalApiRepliesVerification.Run();
             if (args[0] == "--capture-fallback") return await CaptureFallbackVerification.Run(args.Contains("--live"));
             if (args[0] == "--diagnostics") return DiagnosticVerification.Run(args[1]);
             if (args[0] == "--device-live") return await InferenceDeviceVerification.Live(args[1]);
