@@ -1,5 +1,6 @@
 using Microsoft.Win32;
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -55,6 +56,8 @@ public partial class MainWindow
     private DateTime nextWarmup = DateTime.MinValue;
     private bool hookInstalled;
     private DateTime diagnosticAt;
+    private DateTime nextCaptureHookCheck;
+    private bool captureHookReported, captureHookScanFailureReported;
     private DateTime lastClickAt;
     private Point lastClickPoint;
     private DispatcherTimer? singleClickTimer;
@@ -76,6 +79,7 @@ public partial class MainWindow
         singleClickTimer?.Stop();
         lastClickAt = DateTime.MinValue;
         if (IsMouseCaptured) ReleaseMouseCapture();
+        ReleaseCompanionPointerCapture();
         dragging = false;
         CancelMovement();
         if (companionReady && !exitAnimation) PlayIdle();
@@ -150,6 +154,7 @@ public partial class MainWindow
             UseGpu = preferences.GpuEnabled,
             UseExternalApi = preferences.ModelBackend == "api",
             ExternalApiUrl = preferences.LocalLlamaApiUrl,
+            ExternalApiModel = preferences.LocalLlamaApiModel,
             StopOnBattery = preferences.StopModelOnBattery,
             WeatherRegionCode = preferences.WeatherRegionCode,
             NewsSource = () => preferences.NewsSource,
@@ -181,7 +186,10 @@ public partial class MainWindow
         SizeToContent = SizeToContent.Manual;
         companionLayout = new Grid
         {
-            Background = Brushes.Transparent
+            // No background: only the character body takes pointer input (the animation
+            // layout adds a near transparent hit surface for it). The rest of the
+            // window stays click-through so desktop icons below keep working.
+            Background = null
         };
         bubbleText = new TextBlock
         {
@@ -383,6 +391,9 @@ public partial class MainWindow
             return IntPtr.Zero;
         }
 
+        if (RouteCompanionPointer(hwnd, msg, w, l, ref handled))
+            return IntPtr.Zero;
+
         if (msg == 0x21)
         {
             handled = true;
@@ -393,6 +404,122 @@ public partial class MainWindow
         if (msg == 0x218)
             ApplyCompanionPowerPolicy();
         return IntPtr.Zero;
+    }
+
+    private const uint WmMouseMove = 0x0200;
+    private const uint WmLButtonDown = 0x0201;
+    private const uint WmLButtonUp = 0x0202;
+    private const uint WmLButtonDoubleClick = 0x0203;
+    private const uint WmRButtonDown = 0x0204;
+    private const uint WmRButtonUp = 0x0205;
+    private const uint WmRButtonDoubleClick = 0x0206;
+    private const uint WmCaptureChanged = 0x0215;
+    private bool rawLeftHeld, rawRightHeld;
+
+    private void ReleaseCompanionPointerCapture()
+    {
+        rawLeftHeld = false;
+        rawRightHeld = false;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero && CompanionNative.GetCapture() == hwnd)
+            CompanionNative.ReleaseCapture();
+    }
+
+    // The pet is a topmost, non-activating, per-pixel transparent layered window.
+    // Which layer receives a click is decided by Windows and again filtered by WPF
+    // (a message is dropped as "spurious" unless the window has capture or is under
+    // the cursor), so pointer input cannot rely on the normal WPF route. Handling the
+    // raw messages here keeps left drag and the context menu working exactly like the
+    // native animation child did, and the visible body keeps a nonzero-alpha hit
+    // surface so Windows delivers the messages in the first place.
+    private bool RouteCompanionPointer(IntPtr hwnd, int msg, IntPtr w, IntPtr l, ref bool handled)
+    {
+        if (companionClosed || exitAnimation || videoImage is not CompanionSpriteImage sprite)
+            return false;
+
+        uint message = (uint)msg;
+        if (message == WmCaptureChanged)
+        {
+            rawRightHeld = false;
+            if (!rawLeftHeld)
+                return false;
+            rawLeftHeld = false;
+            sprite.CancelNativeCapture();
+            return false;
+        }
+
+        // A hardware animation surface owns pointer input through its native child window.
+        if (sprite.InputPixels != null)
+            return false;
+
+        bool move = message == WmMouseMove;
+        bool leftDown = message is WmLButtonDown or WmLButtonDoubleClick;
+        bool leftUp = message == WmLButtonUp;
+        bool rightDown = message is WmRButtonDown or WmRButtonDoubleClick;
+        bool rightUp = message == WmRButtonUp;
+        if (!move && !leftDown && !leftUp && !rightDown && !rightUp)
+            return false;
+        if (move && !(rawLeftHeld && dragging))
+            return false;
+        if (leftUp && !(rawLeftHeld || dragging))
+            return false;
+        if (rightUp && !rawRightHeld)
+            return false;
+
+        int x = unchecked((short)((long)l & 0xFFFF));
+        int y = unchecked((short)(((long)l >> 16) & 0xFFFF));
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var point = new Point(x / dpi.DpiScaleX, y / dpi.DpiScaleY);
+        if ((leftDown || rightDown) && !CompanionPointerHit(point))
+            return false;
+
+        handled = true;
+        // Reuse the native animation routing so drag and menu behave identically.
+        sprite.IsNativeInput = true;
+        sprite.NativeLeftPressed = leftDown || move;
+        try
+        {
+            if (leftDown)
+            {
+                CompanionComposition.RaiseButtonEvents(this, message);
+                if (dragging)
+                {
+                    rawLeftHeld = true;
+                    CompanionNative.SetCapture(hwnd);
+                }
+            }
+            else if (leftUp)
+            {
+                CompanionComposition.RaiseButtonEvents(this, message);
+                rawLeftHeld = false;
+                if (CompanionNative.GetCapture() == hwnd)
+                    CompanionNative.ReleaseCapture();
+            }
+            else if (rightDown)
+            {
+                rawRightHeld = true;
+                CompanionComposition.RaiseButtonEvents(this, message);
+            }
+            else if (rightUp)
+            {
+                rawRightHeld = false;
+                CompanionComposition.RaiseButtonEvents(this, message);
+            }
+            else
+                CompanionMove(this, new MouseEventArgs(Mouse.PrimaryDevice, Environment.TickCount));
+        }
+        catch (Exception error)
+        {
+            // Never let a click handler failure escape the window procedure.
+            DiagnosticLog.Write(DiagnosticEvent.Interaction, kind: "pointer", error: error);
+        }
+        finally
+        {
+            sprite.IsNativeInput = false;
+            sprite.NativeLeftPressed = false;
+        }
+        TraceCompanionPointer(message, unchecked((uint)w.ToInt64()));
+        return true;
     }
 
     private void CompanionPowerChanged(object sender, PowerModeChangedEventArgs e)
@@ -415,6 +542,7 @@ public partial class MainWindow
         if (brain == null || preferences == null) return;
         brain.UseExternalApi = preferences.ModelBackend == "api";
         brain.ExternalApiUrl = preferences.LocalLlamaApiUrl;
+        brain.ExternalApiModel = preferences.LocalLlamaApiModel;
         if (brain.UseExternalApi) preferences.GpuEnabled = preferences.StopModelOnBattery = false;
         brain.StopOnBattery = preferences.StopModelOnBattery;
         brain.UseGpu = preferences.GpuEnabled;
@@ -444,6 +572,7 @@ public partial class MainWindow
         Height = SpriteSize + 35;
         if (videoImage != null) { videoImage.Width = SpriteSize * 640 / 360; videoImage.Height = SpriteSize; }
         PositionLoadingIndicator();
+        UpdateHitBackdrop();
 
         if (save)
         {
@@ -651,6 +780,11 @@ public partial class MainWindow
     private async void CompanionTick(object? sender, EventArgs e)
     {
         var now = DateTime.UtcNow;
+        if (now >= nextCaptureHookCheck)
+        {
+            nextCaptureHookCheck = now.AddSeconds(5);
+            CheckCaptureHookModules();
+        }
         var foreground = CompanionNative.GetForegroundWindow();
         if (CompanionNative.IsExternalForegroundCandidate(foreground))
             lastExternalForeground = foreground;
@@ -787,6 +921,36 @@ public partial class MainWindow
         }
 
         if (!ConsumeMcpSpeech() && !DispatchAgentDaily()) await SpeechCountdownZeroAsync();
+    }
+
+    private void CheckCaptureHookModules()
+    {
+        if (captureHookReported)
+            return;
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            int count = process.Modules.Cast<ProcessModule>()
+                .Count(module => module.ModuleName.StartsWith("graphics-hook", StringComparison.OrdinalIgnoreCase));
+            if (count == 0)
+                return;
+            captureHookReported = true;
+            DiagnosticLog.Write(DiagnosticEvent.CaptureHookDetected, state: "detected", count: count);
+        }
+        catch (System.ComponentModel.Win32Exception error)
+        {
+            if (captureHookScanFailureReported)
+                return;
+            captureHookScanFailureReported = true;
+            DiagnosticLog.Write(DiagnosticEvent.CaptureHookDetected, state: "failed", error: error);
+        }
+        catch (InvalidOperationException error)
+        {
+            if (captureHookScanFailureReported)
+                return;
+            captureHookScanFailureReported = true;
+            DiagnosticLog.Write(DiagnosticEvent.CaptureHookDetected, state: "failed", error: error);
+        }
     }
 
     private Task SpeechCountdownZeroAsync() => GenerateLocalSpeechAsync(false);
@@ -930,6 +1094,7 @@ public partial class MainWindow
         companionMenuDismissal?.Dispose();
         companionTimer?.Stop();
         singleClickTimer?.Stop();
+        ReleaseCompanionPointerCapture();
         videoPlayer?.Dispose();
         loadingSpinner?.Stop();
         speech?.Dispose();

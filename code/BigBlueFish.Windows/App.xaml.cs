@@ -3,6 +3,8 @@ using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Media;
 
 namespace BigBlueFish.Windows;
 
@@ -21,10 +23,12 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
         try
         {
             Environment.CurrentDirectory = BigBlueFish.Deployment.ApplicationData.Prepare(AppContext.BaseDirectory);
             DiagnosticLog.ConfigureDirectories(AppContext.BaseDirectory, Environment.CurrentDirectory);
+            DiagnosticLog.Write(DiagnosticEvent.RenderingMode, kind: "software", state: "enabled");
         }
         catch (Exception error)
         {

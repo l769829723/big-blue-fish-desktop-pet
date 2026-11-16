@@ -29,7 +29,7 @@ internal sealed partial class LinuxPetWindow
     {
         Preferences.NormalizePublicInfo();
         if (Preferences.ModelBackend == "api") Preferences.GpuEnabled = Preferences.StopModelOnBattery = false;
-        speechVersion++; brain.Stop(); brain.UseGpu = Preferences.GpuEnabled; brain.UseExternalApi = Preferences.ModelBackend == "api"; brain.ExternalApiUrl = Preferences.LocalLlamaApiUrl;
+        speechVersion++; brain.Stop(); brain.UseGpu = Preferences.GpuEnabled; brain.UseExternalApi = Preferences.ModelBackend == "api"; brain.ExternalApiUrl = Preferences.LocalLlamaApiUrl; brain.ExternalApiModel = Preferences.LocalLlamaApiModel;
         brain.RefreshModelAvailability();
         brain.StopOnBattery = Preferences.StopModelOnBattery; brain.WeatherRegionCode = Preferences.WeatherRegionCode;
         Preferences.ApplySpeakerRole(brain);
@@ -109,22 +109,28 @@ internal sealed partial class LinuxPetWindow
         }
         void Model() {
             Title("模型与信息"); Toggle("启用本地大模型", Preferences.ModelEnabled, value => { Preferences.ModelEnabled = value; ApplySettings(); });
-            TextBlock? modelApiLabel = null; TextBox? modelApiUrl = null; CheckBox? gpuToggle = null, batteryToggle = null; Button? modelInstallerButton = null;
+            TextBlock? modelApiLabel = null; TextBox? modelApiUrl = null; TextBlock? modelApiNameLabel = null; TextBox? modelApiName = null; CheckBox? gpuToggle = null, batteryToggle = null; Button? modelInstallerButton = null;
             void RefreshBackendControls() {
                 bool builtin = Preferences.ModelBackend != "api";
                 if (!builtin) Preferences.GpuEnabled = Preferences.StopModelOnBattery = false;
                 if (modelApiLabel != null) modelApiLabel.IsVisible = !builtin;
                 if (modelApiUrl != null) modelApiUrl.IsVisible = !builtin;
+                if (modelApiNameLabel != null) modelApiNameLabel.IsVisible = !builtin;
+                if (modelApiName != null) modelApiName.IsVisible = !builtin;
                 if (gpuToggle != null) { gpuToggle.IsEnabled = builtin; gpuToggle.IsChecked = Preferences.GpuEnabled; }
                 if (batteryToggle != null) { batteryToggle.IsEnabled = builtin; batteryToggle.IsChecked = Preferences.StopModelOnBattery; }
                 if (modelInstallerButton != null) modelInstallerButton.IsVisible = builtin;
             }
             Select("本地模型调用方式", new[] { "内置模型（默认）", "本地 llama API" }, Preferences.ModelBackend == "api" ? 1 : 0,
                 value => { Preferences.ModelBackend = value == 1 ? "api" : "builtin"; if (value == 1) Preferences.GpuEnabled = Preferences.StopModelOnBattery = false; ApplySettings(); RefreshBackendControls(); });
-            modelApiLabel = new TextBlock { Text = "llama API 地址（OpenAI 兼容 /v1）", Margin = new Thickness(0, 4, 0, 2), IsVisible = Preferences.ModelBackend == "api" }; body.Children.Add(modelApiLabel);
+            modelApiLabel = new TextBlock { Text = "llama API 地址（OpenAI 兼容；Ollama 填 http://127.0.0.1:11434/v1）", Margin = new Thickness(0, 4, 0, 2), IsVisible = Preferences.ModelBackend == "api" }; body.Children.Add(modelApiLabel);
             modelApiUrl = new TextBox { Text = Preferences.LocalLlamaApiUrl, IsVisible = Preferences.ModelBackend == "api" };
             modelApiUrl.LostFocus += (_, _) => { Preferences.LocalLlamaApiUrl = modelApiUrl.Text?.Trim() ?? ""; ApplySettings(); };
             body.Children.Add(modelApiUrl);
+            modelApiNameLabel = new TextBlock { Text = "模型名称（填写本机已下载的模型，如 qwen2.5:7b）", Margin = new Thickness(0, 4, 0, 2), IsVisible = Preferences.ModelBackend == "api" }; body.Children.Add(modelApiNameLabel);
+            modelApiName = new TextBox { Text = Preferences.LocalLlamaApiModel, IsVisible = Preferences.ModelBackend == "api" };
+            modelApiName.LostFocus += (_, _) => { Preferences.LocalLlamaApiModel = modelApiName.Text?.Trim() ?? ""; ApplySettings(); };
+            body.Children.Add(modelApiName);
             gpuToggle = Toggle("使用 GPU 加速", Preferences.GpuEnabled, value => { Preferences.GpuEnabled = value; ApplySettings(); });
             var deviceStatus = Paragraph(""); body.Children.Add(deviceStatus);
             var deviceClock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };

@@ -236,15 +236,18 @@ internal static class SpeechFlowVerification
                 .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); Pump(100);
             var backend = Children<ComboBox>(settingsWindow).Single(c => c.Items.Count == 2 && c.Items[0]?.ToString() == "内置模型（默认）");
             var apiUrl = Children<TextBox>(settingsWindow).Single(t => t.Text.StartsWith("http://127.0.0.1:8080"));
+            var apiModel = Children<TextBox>(settingsWindow).Single(t => t.Text == "local");
             var gpu = Children<CheckBox>(settingsWindow).Single(c => (string?)c.Content == "使用显卡加速（关闭则使用 CPU）");
             var battery = Children<CheckBox>(settingsWindow).Single(c => (string?)c.Content == "拔电时暂停并卸载模型");
             backend.SelectedIndex = 1; Pump(100);
             Check(prefs.ModelBackend == "api" && !prefs.GpuEnabled && !prefs.StopModelOnBattery
-                && !gpu.IsEnabled && !battery.IsEnabled && apiUrl.Visibility == Visibility.Visible,
-                "local llama API disables built-in-only options and shows its address");
+                && !gpu.IsEnabled && !battery.IsEnabled && apiUrl.Visibility == Visibility.Visible
+                && apiModel.Visibility == Visibility.Visible,
+                "local llama API disables built-in-only options and shows its address and model name");
             Check(brain.RunnerPid == null, "switching to local llama API unloads the built-in model process");
             backend.SelectedIndex = 0; Pump(100);
             Check(prefs.ModelBackend == "builtin" && apiUrl.Visibility == Visibility.Collapsed
+                && apiModel.Visibility == Visibility.Collapsed
                 && gpu.IsEnabled && battery.IsEnabled, "switching back to built-in model hides the API address and restores its options");
             prefs.ModelEnabled = true;
             brain.Stop();

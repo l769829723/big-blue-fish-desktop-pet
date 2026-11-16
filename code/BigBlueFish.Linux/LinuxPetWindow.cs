@@ -59,7 +59,7 @@ internal sealed partial class LinuxPetWindow : Window
         DiagnosticLog.ConfigureDirectories(AppContext.BaseDirectory, Environment.CurrentDirectory);
         DiagnosticLog.Write(DiagnosticEvent.AppStarted, kind: "Linux", directory: Environment.CurrentDirectory);
         DiagnosticLog.ObserveSettings(Preferences);
-        brain = new() { UseGpu = Preferences.GpuEnabled, UseExternalApi = Preferences.ModelBackend == "api", ExternalApiUrl = Preferences.LocalLlamaApiUrl,
+        brain = new() { UseGpu = Preferences.GpuEnabled, UseExternalApi = Preferences.ModelBackend == "api", ExternalApiUrl = Preferences.LocalLlamaApiUrl, ExternalApiModel = Preferences.LocalLlamaApiModel,
             StopOnBattery = Preferences.StopModelOnBattery, WeatherRegionCode = Preferences.WeatherRegionCode,
             NewsSource = () => Preferences.NewsSource, NewsLocation = () => Preferences.ActiveNewsLocation,
             NewsFileReadOrder = () => Preferences.NewsFileReadOrder, NewsFileLinesPerRead = () => Preferences.NewsFileLinesPerRead,

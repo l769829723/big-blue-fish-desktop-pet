@@ -46,8 +46,12 @@ internal static class Program
         {
             if (args[0] == "--api-endpoints")
             {
-                Check(CompanionBrain.BuildExternalApiEndpoint("http://127.0.0.1:8080").AbsolutePath == "/chat/completions",
-                    "OpenAI-compatible API base URL works without a version path");
+                Check(CompanionBrain.BuildExternalApiEndpoint("http://127.0.0.1:8080").AbsolutePath == "/v1/chat/completions",
+                    "a bare base URL uses the standard OpenAI version path");
+                Check(CompanionBrain.BuildExternalApiEndpoint("http://127.0.0.1:11434").AbsolutePath == "/v1/chat/completions",
+                    "an Ollama base URL without a version path reaches its OpenAI-compatible endpoint");
+                Check(CompanionBrain.BuildExternalApiEndpoint("http://127.0.0.1:11434/v1").AbsolutePath == "/v1/chat/completions",
+                    "an Ollama /v1 base URL is not appended twice");
                 Check(CompanionBrain.BuildExternalApiEndpoint("http://127.0.0.1:8080/api").AbsolutePath == "/api/chat/completions",
                     "custom /api prefix is preserved when forming the chat completion endpoint");
                 Check(CompanionBrain.BuildExternalApiEndpoint("http://127.0.0.1:8080/api/v2").AbsolutePath == "/api/v2/chat/completions",

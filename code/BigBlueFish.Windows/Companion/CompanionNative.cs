@@ -72,6 +72,12 @@ internal static class CompanionNative
     [DllImport("user32.dll")]
     internal static extern bool GetCursorPos(out Point p);
     [DllImport("user32.dll")]
+    internal static extern IntPtr SetCapture(IntPtr h);
+    [DllImport("user32.dll")]
+    internal static extern bool ReleaseCapture();
+    [DllImport("user32.dll")]
+    internal static extern IntPtr GetCapture();
+    [DllImport("user32.dll")]
     internal static extern bool GetLastInputInfo(ref Input i);
     [DllImport("kernel32.dll")]
     internal static extern bool GetSystemPowerStatus(out Power p);

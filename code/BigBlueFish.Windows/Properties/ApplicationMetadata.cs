@@ -6,4 +6,5 @@ using System.Windows;
 [assembly: InternalsVisibleTo("RunnerVerification")]
 [assembly: InternalsVisibleTo("MaintenanceUiVerification")]
 [assembly: InternalsVisibleTo("AnimationUiVerification")]
+[assembly: InternalsVisibleTo("McpUiVerification")]
 [assembly: InternalsVisibleTo("MediaVerification")]

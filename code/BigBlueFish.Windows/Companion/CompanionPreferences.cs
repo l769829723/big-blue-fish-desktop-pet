@@ -28,6 +28,7 @@ internal sealed class CompanionPreferences
     public bool ModelEnabled { get; set; } = true;
     public string ModelBackend { get; set; } = "builtin";
     public string LocalLlamaApiUrl { get; set; } = "http://127.0.0.1:8080/v1";
+    public string LocalLlamaApiModel { get; set; } = "local";
     public bool GpuEnabled { get; set; } = true;
     public bool PublicInfo { get; set; } = true;
     public bool WeatherEnabled { get; set; } = true;
@@ -189,6 +190,8 @@ internal sealed class CompanionPreferences
                     s.SetSpeechInterval(s.SpeechInterval);
                     s.NormalizePublicInfo();
                     s.ModelBackend = s.ModelBackend == "api" ? "api" : "builtin";
+                    s.LocalLlamaApiModel = string.IsNullOrWhiteSpace(s.LocalLlamaApiModel) ? "local" : s.LocalLlamaApiModel.Trim();
+                    if (s.LocalLlamaApiModel.Length > 120) s.LocalLlamaApiModel = s.LocalLlamaApiModel[..120];
                     if (s.ModelBackend == "api") s.GpuEnabled = s.StopModelOnBattery = false;
                     s.NewsSource = s.NewsSource is "file" or "api" ? s.NewsSource : "builtin";
                     s.NewsFileReadOrder = s.NewsFileReadOrder is "reverse" or "random" ? s.NewsFileReadOrder : "forward";

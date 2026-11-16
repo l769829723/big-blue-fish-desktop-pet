@@ -113,13 +113,25 @@ internal static partial class Program
     {
         var image=(CompanionSpriteImage)Read(window,"videoImage");
         var layout=(Grid)Read(window,"companionLayout");
-        Check(ReferenceEquals(layout.Background,Brushes.Transparent)
-            && VisualTreeHelper.HitTest(layout,new Point(5,5))?.VisualHit==layout,
-            "transparent corners of the pet window remain hit-testable instead of passing mouse input through");
-        var corner=layout.PointToScreen(new Point(5,5));
-        Check(WindowFromPoint(new NativePoint((int)corner.X,(int)corner.Y))==Handle(window),
-            "Windows routes pointer hit testing to the pet HWND over a transparent corner");
-        Check(window.Topmost,"pet remains topmost while its transparent window surface accepts input");
+        var backdrop=(System.Windows.Shapes.Rectangle)Read(window,"hitBackdrop");
+        var body=Property<Rect>(window,"CompanionVisibleBounds");
+        var fill=(SolidColorBrush)backdrop.Fill;
+        Check(layout.Background==null,
+            "pet window keeps transparent areas click-through instead of grabbing the whole surface");
+        Check(backdrop.IsHitTestVisible&&fill.Color.A>0&&fill.Color.A<=8,
+            $"character body keeps a near-invisible hit surface for layered window hit testing: alpha={fill.Color.A}");
+        Check(Math.Abs(backdrop.Width-body.Width)<.5&&Math.Abs(backdrop.Height-body.Height)<.5
+            &&Math.Abs(backdrop.Margin.Left-body.X)<.5&&Math.Abs(backdrop.Margin.Top-body.Y)<.5,
+            $"hit surface follows the visible character bounds: backdrop={backdrop.Margin.Left},{backdrop.Margin.Top},{backdrop.Width}x{backdrop.Height} body={body}");
+        var bodyPoint=new Point(body.X+body.Width/2,body.Y+body.Height*.7);
+        Check(VisualTreeHelper.HitTest(layout,bodyPoint)!=null,
+            "character body stays hit-testable inside the pet window");
+        Check(VisualTreeHelper.HitTest(layout,new Point(2,2))==null,
+            "transparent corner outside the character stays click-through");
+        var bodyScreen=layout.PointToScreen(bodyPoint);
+        Check(RootWindow(WindowFromPoint(new NativePoint((int)bodyScreen.X,(int)bodyScreen.Y)))==Handle(window),
+            "Windows routes pointer hit testing to the pet HWND over the character body");
+        Check(window.Topmost,"pet remains topmost while its hit surface accepts input");
         var oldCursor=System.Windows.Forms.Cursor.Position;
         var point=image.PointToScreen(new Point(image.ActualWidth/2,image.ActualHeight*.68));
         Check(SetCursorPos((int)point.X,(int)point.Y),"move pointer over the visible pet before routing native input");
@@ -148,6 +160,13 @@ internal static partial class Program
     readonly struct NativePoint(int x,int y){internal readonly int X=x,Y=y;}
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern IntPtr WindowFromPoint(NativePoint point);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern IntPtr GetParent(IntPtr window);
+    static IntPtr RootWindow(IntPtr window)
+    {
+        for(var parent=GetParent(window);parent!=IntPtr.Zero;parent=GetParent(window))window=parent;
+        return window;
+    }
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern IntPtr GetForegroundWindow();
     [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint="GetWindowLongPtrW")]

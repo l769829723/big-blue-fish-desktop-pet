@@ -42,6 +42,43 @@ public partial class MainWindow
         Height - SpriteSize + SpriteSize * 58 / 360,
         SpriteSize * 220 / 360, SpriteSize * 278 / 360);
 
+    // The pet is a per-pixel transparent layered window: Windows only delivers mouse
+    // messages to pixels whose alpha is above zero. The animation surface is fully
+    // transparent wherever the character is not drawn, so the visible body needs its
+    // own almost invisible hit surface. Four out of 255 alpha is enough for the
+    // window manager to hit test and stays imperceptible on screen. Everything outside
+    // the body keeps alpha zero and still passes clicks to the applications below.
+    private static readonly Brush HitBackdropBrush = CreateHitBackdropBrush();
+    private System.Windows.Shapes.Rectangle? hitBackdrop;
+    private static Brush CreateHitBackdropBrush()
+    {
+        var brush = new SolidColorBrush(Color.FromArgb(4, 0, 0, 0));
+        brush.Freeze();
+        return brush;
+    }
+    private void UpdateHitBackdrop()
+    {
+        if (hitBackdrop == null) return;
+        var bounds = CompanionVisibleBounds;
+        hitBackdrop.Margin = new Thickness(bounds.X, bounds.Y, 0, 0);
+        hitBackdrop.Width = bounds.Width;
+        hitBackdrop.Height = bounds.Height;
+    }
+    private bool CompanionPointerHit(Point point)
+    {
+        if (!CompanionVisibleBounds.Contains(point)) return false;
+        // A visible bubble owns its own clicks, including the close button.
+        if (!bubble.IsVisible || bubble.ActualWidth <= 0 || bubble.ActualHeight <= 0) return true;
+        try
+        {
+            var region = bubble.TransformToAncestor(this)
+                .TransformBounds(new Rect(0, 0, bubble.ActualWidth, bubble.ActualHeight));
+            return !region.Contains(point);
+        }
+        catch (InvalidOperationException) { return true; }
+        catch (ArgumentException) { return true; }
+    }
+
     private void StartVideoAnimations()
     {
         animationPolicy = CompanionAnimationPolicy.Load(AnimationDirectory);
@@ -49,11 +86,22 @@ public partial class MainWindow
             HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom,
             Stretch = Stretch.Fill };
         companionLayout.Children.Insert(0, videoImage);
+        hitBackdrop = new System.Windows.Shapes.Rectangle
+        {
+            Fill = HitBackdropBrush,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            IsHitTestVisible = true
+        };
+        companionLayout.Children.Insert(0, hitBackdrop);
+        SizeChanged += (_, _) => UpdateHitBackdrop();
+        UpdateHitBackdrop();
         ((CompanionSpriteImage)videoImage).NativeCaptureLost+=()=>
         {
             if(dragging){dragging=false;if(dragged)PublishMcpInteraction("drag_end",new{Left,Top,cancelled=true});FinishDragAnimation();}
         };
         videoPlayer = new(videoImage);
+        videoPlayer.ForceSoftware = true;
         videoPlayer.Failed += error =>
         {
             DiagnosticLog.Write(DiagnosticEvent.AnimationFailed, state: "failed");

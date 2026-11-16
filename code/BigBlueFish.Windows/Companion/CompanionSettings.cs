@@ -157,10 +157,14 @@ public partial class MainWindow
         p.Children.Add(new TextBlock { Text = "本地模型调用方式", Margin = new Thickness(0, 8, 0, 4) });
         var modelBackend = new ComboBox { ItemsSource = new[] { "内置模型（默认）", "本地 llama API" }, SelectedIndex = preferences.ModelBackend == "api" ? 1 : 0 };
         p.Children.Add(modelBackend);
-        var modelApiLabel = new TextBlock { Text = "本地 API 地址（OpenAI 兼容；可填写任意路径前缀，如 /api）", Margin = new Thickness(0, 8, 0, 4) };
+        var modelApiLabel = new TextBlock { Text = "本地 API 地址（OpenAI 兼容；Ollama 填 http://127.0.0.1:11434/v1）", Margin = new Thickness(0, 8, 0, 4) };
         p.Children.Add(modelApiLabel);
         var modelApiUrl = new TextBox { Text = preferences.LocalLlamaApiUrl, MinWidth = 300 };
         p.Children.Add(modelApiUrl);
+        var modelApiNameLabel = new TextBlock { Text = "模型名称（填写本机已下载的模型，如 qwen2.5:7b）", Margin = new Thickness(0, 8, 0, 4) };
+        p.Children.Add(modelApiNameLabel);
+        var modelApiName = new TextBox { Text = preferences.LocalLlamaApiModel, MinWidth = 300 };
+        p.Children.Add(modelApiName);
         CheckBox? gpuToggle = null, batteryToggle = null;
         Button? installModel = null;
         void RefreshBackendControls()
@@ -169,6 +173,8 @@ public partial class MainWindow
             if (!builtin) preferences.GpuEnabled = preferences.StopModelOnBattery = false;
             modelApiLabel.Visibility = builtin ? Visibility.Collapsed : Visibility.Visible;
             modelApiUrl.Visibility = builtin ? Visibility.Collapsed : Visibility.Visible;
+            modelApiNameLabel.Visibility = builtin ? Visibility.Collapsed : Visibility.Visible;
+            modelApiName.Visibility = builtin ? Visibility.Collapsed : Visibility.Visible;
             if (gpuToggle != null) { gpuToggle.IsEnabled = builtin; gpuToggle.IsChecked = preferences.GpuEnabled; }
             if (batteryToggle != null) { batteryToggle.IsEnabled = builtin; batteryToggle.IsChecked = preferences.StopModelOnBattery; }
             if (installModel != null) installModel.Visibility = builtin ? Visibility.Visible : Visibility.Collapsed;
@@ -184,6 +190,7 @@ public partial class MainWindow
             brain.RefreshModelAvailability(); nextWarmup = DateTime.MinValue; RefreshBackendControls(); SaveCompanion();
         };
         modelApiUrl.LostKeyboardFocus += (_, _) => { preferences.LocalLlamaApiUrl = modelApiUrl.Text.Trim(); brain.ExternalApiUrl = preferences.LocalLlamaApiUrl; SaveCompanion(); };
+        modelApiName.LostKeyboardFocus += (_, _) => { preferences.LocalLlamaApiModel = modelApiName.Text.Trim(); brain.ExternalApiModel = preferences.LocalLlamaApiModel; SaveCompanion(); };
         batteryToggle = Toggle("拔电时暂停并卸载模型", preferences.StopModelOnBattery, v =>
         {
             preferences.StopModelOnBattery = v;

@@ -46,12 +46,13 @@ internal sealed class CompanionBrain : IDisposable
     private string lastNewsTitle = "";
     private string? lastNewsFailure;
     private int fileNewsCursor;
-    private const string ExternalApiNotice = "模型配置有误，请检查本地 API 地址和服务状态。";
+    private const string ExternalApiNotice = "模型配置有误，请检查本地 API 地址、模型名称和服务状态。";
     internal string Status { get; private set; } = "等待说话时启动";
     internal bool Busy { get; private set; }
     internal bool UseGpu { get; set; } = true;
     internal bool UseExternalApi { get; set; }
     internal string ExternalApiUrl { get; set; } = "http://127.0.0.1:8080/v1";
+    internal string ExternalApiModel { get; set; } = "local";
     internal bool StopOnBattery { get; set; } = true;
     internal string WeatherRegionCode { get; set; } = CompanionRegions.DefaultCode;
     internal Func<string>? NewsLocation { get; set; }
@@ -474,8 +475,8 @@ internal sealed class CompanionBrain : IDisposable
         {
             DiagnosticLog.Write(DiagnosticEvent.SpeechFailed, kind: "local", error: e);
             StopRunner(); RecordFailure("生成", e);
-            Status = UseExternalApi ? ExternalApiNotice : e is IOException ? e.Message : "暂时无法获取或播报天气，请稍后重试";
-            return UseExternalApi ? ExternalApiNotice : "";
+            Status = UseExternalApi ? ExternalApiFailure(e) : e is IOException ? e.Message : "暂时无法获取或播报天气，请稍后重试";
+            return UseExternalApi ? ExternalApiFailure(e) : "";
         }
         finally
         {
@@ -506,7 +507,7 @@ internal sealed class CompanionBrain : IDisposable
         object payload = UseExternalApi
             ? new
             {
-                model = "local", messages, temperature, top_p = .9,
+                model = ExternalApiModelName, messages, temperature, top_p = .9,
                 max_tokens = persona == NewsPersona ? 160 : persona == WeatherPersona ? 220 : 180,
                 stream = StreamingResponses, stream_options = new { include_usage = true }
             }
@@ -529,12 +530,31 @@ internal sealed class CompanionBrain : IDisposable
             Content = JsonContent.Create(payload)
         };
         using var response = await local.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead, token);
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            if (!UseExternalApi) response.EnsureSuccessStatusCode();
+            int status = (int)response.StatusCode;
+            string hint = status switch
+            {
+                401 or 403 => "需要鉴权",
+                404 => "找不到模型或接口，请核对模型名称和 /v1 地址",
+                400 => "不接受本次请求",
+                >= 500 => "服务内部出错",
+                _ => "请求失败"
+            };
+            throw new InvalidDataException(ApiErrorText($"本地 API 返回 {status}：{hint}", await ApiFailureDetail(response, token)));
+        }
         if (!StreamingResponses)
         {
             using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
+            if (document.RootElement.TryGetProperty("error", out var error))
+                throw new InvalidDataException(ApiErrorText("本地 API 返回错误", ApiErrorDetail(error)));
+            if (!document.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0
+                || !choices[0].TryGetProperty("message", out var message)
+                || !message.TryGetProperty("content", out var content))
+                throw new InvalidDataException("本地 API 未返回可用吐字内容，请检查模型名称和服务状态。");
             if (document.RootElement.TryGetProperty("timings", out var timings)) LastTimings = timings.Clone();
-            return Clean(document.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "");
+            return Clean(content.GetString() ?? "");
         }
 
         using var reader = new StreamReader(await response.Content.ReadAsStreamAsync(token));
@@ -550,8 +570,8 @@ internal sealed class CompanionBrain : IDisposable
             try
             {
                 using var chunk = JsonDocument.Parse(data);
-                if (UseExternalApi && chunk.RootElement.TryGetProperty("error", out _))
-                    throw new InvalidDataException("本地模型 API 返回错误响应");
+                if (UseExternalApi && chunk.RootElement.TryGetProperty("error", out var streamError))
+                    throw new InvalidDataException(ApiErrorText("本地 API 返回错误", ApiErrorDetail(streamError)));
                 if (chunk.RootElement.TryGetProperty("timings", out var timings)) LastTimings = timings.Clone();
                 if (!chunk.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
                     continue;
@@ -577,9 +597,44 @@ internal sealed class CompanionBrain : IDisposable
         }
 
         if (UseExternalApi && raw.Length == 0)
-            throw new InvalidDataException("本地模型 API 未返回可用吐字内容");
+            throw new InvalidDataException("本地 API 未返回可用吐字内容，请检查模型名称和服务状态。");
         return Clean(raw.ToString());
     }
+
+    private string ExternalApiModelName => string.IsNullOrWhiteSpace(ExternalApiModel) ? "local" : ExternalApiModel.Trim();
+
+    private static string ApiErrorDetail(JsonElement error)
+    {
+        string detail = error.ValueKind switch
+        {
+            JsonValueKind.String => error.GetString() ?? "",
+            JsonValueKind.Object when error.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.String => message.GetString() ?? "",
+            _ => ""
+        };
+        detail = detail.Trim();
+        return detail.Length > 80 ? detail[..80] + "…" : detail;
+    }
+
+    private static string ApiErrorText(string summary, string detail)
+        => detail.Length == 0 ? summary : summary + "（" + detail + "）";
+
+    private static async Task<string> ApiFailureDetail(HttpResponseMessage response, CancellationToken token)
+    {
+        try
+        {
+            string body = await response.Content.ReadAsStringAsync(token);
+            if (string.IsNullOrWhiteSpace(body)) return "";
+            using var document = JsonDocument.Parse(body);
+            return document.RootElement.TryGetProperty("error", out var error) ? ApiErrorDetail(error) : "";
+        }
+        catch (Exception error) when (error is JsonException or HttpRequestException or IOException)
+        {
+            return "";
+        }
+    }
+
+    private static string ExternalApiFailure(Exception error)
+        => error is InvalidDataException && error.Message.Length > 0 ? error.Message : ExternalApiNotice;
 
     private Uri ExternalApiEndpoint() => BuildExternalApiEndpoint(ExternalApiUrl);
 
@@ -591,9 +646,14 @@ internal sealed class CompanionBrain : IDisposable
             || string.IsNullOrWhiteSpace(baseAddress.Host)
             || !string.IsNullOrEmpty(baseAddress.Query) || !string.IsNullOrEmpty(baseAddress.Fragment))
             throw new InvalidDataException("本地模型 API 地址无效");
-        if (baseAddress.AbsolutePath.TrimEnd('/').EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
+        string path = baseAddress.AbsolutePath.TrimEnd('/');
+        if (path.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
             return baseAddress;
-        return new Uri(new Uri(baseAddress.AbsoluteUri.TrimEnd('/') + "/"), "chat/completions");
+        // A bare host is how OpenAI-compatible servers such as Ollama and LM Studio
+        // are usually written; they serve the standard /v1/chat/completions path.
+        return path.Length == 0
+            ? new Uri(baseAddress.GetLeftPart(UriPartial.Authority) + "/v1/chat/completions")
+            : new Uri(new Uri(baseAddress.AbsoluteUri.TrimEnd('/') + "/"), "chat/completions");
     }
 
     private async Task<CompanionNews.Item?> NewsItem(CancellationToken token)
@@ -847,8 +907,8 @@ internal sealed class CompanionBrain : IDisposable
         {
             DiagnosticLog.Write(DiagnosticEvent.SpeechFailed, kind: "local", error: e);
             StopRunner(); RecordFailure("生成", e);
-            Status = UseExternalApi ? ExternalApiNotice : e is IOException ? e.Message : "暂时无法生成，稍后重试";
-            return UseExternalApi ? ExternalApiNotice : "";
+            Status = UseExternalApi ? ExternalApiFailure(e) : e is IOException ? e.Message : "暂时无法生成，稍后重试";
+            return UseExternalApi ? ExternalApiFailure(e) : "";
         }
         finally
         {
