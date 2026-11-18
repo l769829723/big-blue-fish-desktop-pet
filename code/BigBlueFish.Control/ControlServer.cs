@@ -13,12 +13,25 @@ public sealed class ControlServer : IDisposable
     private readonly ConcurrentDictionary<long, Session> sessions = new();
     private readonly Func<string, JsonElement, CancellationToken, Task<object>> execute;
     private readonly ConcurrentQueue<object> recent = new();
+    private readonly object[] definitions;
+    private readonly HashSet<string>? allowed;
     private readonly string pipe;
+    private readonly string instructions;
     private long nextSession, sequence;
     public string? LastConnectionError { get; private set; }
     public int Connections => sessions.Values.Count(s => s.Initialized && !s.Closed);
-    public ControlServer(Func<string, JsonElement, CancellationToken, Task<object>> execute, string? pipeName = null)
-    { this.execute = execute; pipe = pipeName ?? ControlTools.PipeName; _ = Task.Run(Accept); }
+    // Restricted servers only expose the listed tools and no interaction resource, so a
+    // narrowly granted surface cannot be widened by a client that ignores its instructions.
+    public bool Restricted => allowed != null;
+    public ControlServer(Func<string, JsonElement, CancellationToken, Task<object>> execute, string? pipeName = null, string[]? tools = null, string? instructions = null)
+    {
+        this.execute = execute; pipe = pipeName ?? ControlTools.PipeName;
+        definitions = tools == null ? ControlTools.Definitions : ControlTools.Definitions.Where(t => tools.Contains(ControlTools.ToolName(t))).ToArray();
+        allowed = tools == null ? null : new(tools, StringComparer.Ordinal);
+        this.instructions = instructions ?? DefaultInstructions;
+        _ = Task.Run(Accept);
+    }
+    private const string DefaultInstructions = "蓝色大肥鱼内部控制工具。使用big-blue-fish技能；完整指南可调用get_operation_guide。让鱼鱼说话使用say或say_next，普通Agent文字不会进入气泡。先读get_settings和工具schema，动作名称取自list_actions。预约唤醒由鱼鱼计时执行。修改设置不会打开或激活设置窗口。提线木偶模式在连接中断后保持。工具成功表示提交操作，不表示主人已读或动画完成。";
     private async Task Accept()
     {
         while (!lifetime.IsCancellationRequested)
@@ -49,9 +62,8 @@ public sealed class ControlServer : IDisposable
     {
         var message = new { sequence = Interlocked.Increment(ref sequence), time = DateTimeOffset.UtcNow, kind, detail };
         recent.Enqueue(message); while (recent.Count > 128) recent.TryDequeue(out _);
-        foreach (var session in sessions.Values) {
-            session.Publish(message);
-        }
+        if (Restricted) return;
+        foreach (var session in sessions.Values) session.Publish(message);
     }
     public void Dispose()
     {
@@ -151,23 +163,23 @@ public sealed class ControlServer : IDisposable
                 if (negotiated) { Error(id, -32600, "已完成初始化协商。"); return Task.CompletedTask; }
                 negotiated = true;
                 var version = args.TryGetProperty("protocolVersion", out var requested) && requested.GetString() == "2025-03-26" ? "2025-03-26" : "2025-11-25";
-                Result(id, new { protocolVersion = version, capabilities = new { tools = new { listChanged = false }, logging = new { }, resources = new { subscribe = true, listChanged = false } },
+                Result(id, new { protocolVersion = version, capabilities = new { tools = new { listChanged = false }, logging = new { }, resources = new { subscribe = !owner.Restricted, listChanged = false } },
                     serverInfo = new { name = "BigBlueFish", version = typeof(ControlServer).Assembly.GetName().Version!.ToString(3) },
-                    instructions = "蓝色大肥鱼内部控制工具。使用big-blue-fish技能；完整指南可调用get_operation_guide。让鱼鱼说话使用say或say_next，普通Agent文字不会进入气泡。先读get_settings和工具schema，动作名称取自list_actions。预约唤醒由鱼鱼计时执行。修改设置不会打开或激活设置窗口。提线木偶模式在连接中断后保持。工具成功表示提交操作，不表示主人已读或动画完成。" });
+                    instructions = owner.instructions });
                 return Task.CompletedTask;
             }
             if (method == "ping") { Result(id, new { }); return Task.CompletedTask; }
             if (!Initialized) { Error(id, -32002, "MCP 尚未初始化。"); return Task.CompletedTask; }
             switch (method)
             {
-                case "tools/list": Result(id, new { tools = ControlTools.Definitions }); break;
-                case "resources/list": Result(id, new { resources = new[] { new { uri = "bigbluefish://interactions", name = "用户交互与输入", mimeType = "application/json" } } }); break;
+                case "tools/list": Result(id, new { tools = owner.definitions }); break;
+                case "resources/list": Result(id, new { resources = owner.Restricted ? Array.Empty<object>() : new[] { new { uri = "bigbluefish://interactions", name = "用户交互与输入", mimeType = "application/json" } } }); break;
                 case "resources/read":
-                    if (!args.TryGetProperty("uri", out var uri) || uri.GetString() != "bigbluefish://interactions") Error(id, -32602, "未知资源。");
+                    if (owner.Restricted || !args.TryGetProperty("uri", out var uri) || uri.GetString() != "bigbluefish://interactions") Error(id, -32602, "未知资源。");
                     else Result(id, new { contents = new[] { new { uri = "bigbluefish://interactions", mimeType = "application/json", text = JsonSerializer.Serialize(owner.recent.ToArray()) } } });
                     break;
                 case "resources/subscribe": case "resources/unsubscribe":
-                    if (!args.TryGetProperty("uri", out var subscription) || subscription.GetString() != "bigbluefish://interactions") Error(id, -32602, "未知资源。");
+                    if (owner.Restricted || !args.TryGetProperty("uri", out var subscription) || subscription.GetString() != "bigbluefish://interactions") Error(id, -32602, "未知资源。");
                     else { subscribed = method.EndsWith("/subscribe", StringComparison.Ordinal); Result(id, new { }); }
                     break;
                 case "logging/setLevel":
@@ -188,7 +200,7 @@ public sealed class ControlServer : IDisposable
             try
             {
                 var name = args.GetProperty("name").GetString()!;
-                if (!ControlTools.Definitions.Any(t => JsonSerializer.SerializeToElement(t).GetProperty("name").GetString() == name)) throw new ArgumentException("未知工具。");
+                if (!owner.definitions.Any(t => ControlTools.ToolName(t) == name)) throw new ArgumentException("未知工具。");
                 var parameters = args.TryGetProperty("arguments", out var a) ? a : JsonSerializer.SerializeToElement(new { });
                 DiagnosticLog.Write(DiagnosticEvent.McpTool, kind: name, state: "start");
                 var result = await owner.execute(name, parameters, cancel.Token);

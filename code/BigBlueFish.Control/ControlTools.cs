@@ -13,6 +13,12 @@ public static class ControlTools
     public const string DailySpeechDescription = "日常关心触发后，由 Agent 编写鱼鱼要说的话。";
     public const string BehaviorControlDescription = "由 Agent 决定何时关心主人、如何切换动作；没有安排时，鱼鱼保持待机。上一个开关决定由 Agent 还是本地模型编写日常吐字。";
     public const string PuppetWarning = "开启后，鱼鱼会暂停自己的日常关心计时和动作切换，保持待机，等待 Agent 安排。如果 Agent 关闭或断开，需关闭此开关，才能恢复鱼鱼自己的日常关心与动作安排。";
+    public const string ExternalMcpLabel = "允许外部 MCP 客户端控制鱼鱼（只说与动）";
+    public const string ExternalMcpTitle = "允许外部 MCP 客户端接入";
+    public const string ExternalMcpDescription = "在 Claude Desktop、Cursor、Codex 等支持 MCP 的客户端里加入下面的配置，就能让鱼鱼说出指定内容、播放指定动作。这个接口只开放吐字与动作，不能修改设置、截图，也不能读写 Agent 对话。";
+    public const string ExternalMcpWarning = "开启后，这台电脑上以你的身份运行的程序都可以通过 MCP 让鱼鱼说出它指定的内容、播放它指定的动作，不再逐个确认。这个接口不提供设置修改、屏幕截图、Agent 对话、输入框和预约，也不读取点击等交互记录。关闭开关或退出桌宠后连接立即失效。请只在你接受这一点时开启。";
+    public const string ExternalInstructions = "蓝色大肥鱼外部 MCP 接口，只开放吐字与动作。say 让鱼鱼立即按原文显示，say_next 等到下一次日常节奏；list_actions 返回精确动作名，play_action 排队播放，interrupt_action 立即切换。成功只表示已提交，不等于主人已看见或动画已播完。";
+    public static readonly string[] ExternalTools = ["list_actions", "play_action", "interrupt_action", "say", "say_next"];
     public static string PipeName => "BigBlueFish.Control." + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)))).Substring(0, 20);
     public static object Text(object value) => new { content = new[] { new { type = "text", text = JsonSerializer.Serialize(value) } } };
@@ -54,7 +60,9 @@ public static class ControlTools
           "AgentRespondToDrag":{"type":"boolean","description":"拖动结束是否主动发起Agent轮次，默认false。"}
         }}}
         """;
-    public static object[] Definitions => [
+    public static object[] Definitions => All;
+    public static string ToolName(object definition) => (string)definition.GetType().GetProperty("name")!.GetValue(definition)!;
+    private static readonly object[] All = [
         Tool("get_settings", "读取settings与state。AgentEnabled只读，其余可写字段和范围见update_settings的schema。state是运行快照，不可写；modelAvailable仅表示模型文件可用，不等于推理服务已加载就绪。content[0].text为JSON字符串。", "{}"),
         Tool("update_settings", "按字段修改设置并尝试保存；省略字段保留，空对象也会走应用设置流程。先验证整个补丁，字段或用户确认失败时不应用。不会打开或激活设置窗口。Windows按相关字段停止模型或重排计时；Linux每次应用都会停止模型并重排计时。修改前先读状态；超时、取消或IO错误后先读回，勿盲目重试。启用PuppetMode须等待真实用户确认；本工具不能修改AgentEnabled。", SettingsInput, ["settings"]),
         Tool("list_actions", "列出106个动作的精确action名称、pool、基础weight与名义duration_seconds。复制action原文传给动作工具；分类和权重是自主调度元数据，Disabled动作也可外部指定。名义时长不是完成通知。", "{}"),

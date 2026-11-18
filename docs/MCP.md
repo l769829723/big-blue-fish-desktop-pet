@@ -1,6 +1,26 @@
 # 蓝色大肥鱼内部工具参考
 
-标准版通过 ACP 连接本机 CLI Harness，并在创建或恢复专用会话时自动提供本工具服务。用户操作见 [连接 Agent](ACP.md)。鱼鱼以当前进程随机命名的用户范围管道接收控制，随包 stdio 桥接程序使用 `--pipe <本次管道名>` 连接。管道配置由程序生成，无需手工加入全局 Harness 配置。
+标准版有两种接入方式。通过 ACP 连接本机 CLI Harness 时，程序在创建或恢复专用会话时自动提供本工具服务，用户操作见 [Agent 与 MCP](ACP.md)。用户也可以在设置页开启“允许外部 MCP 客户端控制鱼鱼（只说与动）”，让 Claude Desktop、Cursor、Codex 等支持 MCP 的客户端直接连接。鱼鱼以当前进程随机命名的用户范围管道接收控制，随包 stdio 桥接程序使用 `--pipe <本次管道名>` 连接；外部接入使用按用户目录生成的稳定管道，桥接程序不带参数时连接它。
+
+## 外部 MCP 接入
+
+设置页“Agent 与 MCP”页底部有独立的开关、说明和可直接复制的配置。加入配置后需要重启对应客户端：
+
+```json
+{
+  "mcpServers": {
+    "big-blue-fish": {
+      "command": "C:\\Program Files\\蓝色大肥鱼\\当前版本\\BigBlueFish.Mcp.exe"
+    }
+  }
+}
+```
+
+Linux 的 `command` 是安装目录中的 `BigBlueFish.Mcp`。界面同时显示当前外部连接数，接口只在本机命名管道上提供，不开放网络端口。
+
+外部接入只注册 `list_actions`、`play_action`、`interrupt_action`、`say` 与 `say_next`。`get_settings`、`update_settings`、两项截图、`request_local_speech`、操作指南和预约都不可用；资源列表为空，`resources/read` 与订阅返回未知资源；点击、拖动和输入事件不推送给外部客户端。初始化返回的 `instructions` 与 `tools/list` 都只描述这五项，越界调用返回工具错误。`ExternalMcpEnabled`、`AgentEnabled` 与 `McpEnabled` 一样只能由用户在设置中修改，不在 `update_settings` 的可写字段里。
+
+外部接入不要求连接 Agent、安装或启用本地模型，也不受提线木偶模式影响；`say` 的原文显示与 `play_action`、`interrupt_action` 的调度语义和内部工具完全相同。开关默认关闭，开启前的告知包含：本机以同一用户身份运行的程序都可以让鱼鱼说出指定内容、播放指定动作，不再逐个确认；关闭开关、关闭连接或退出桌宠后该服务与管道立即释放。
 
 ## 协议与结果
 

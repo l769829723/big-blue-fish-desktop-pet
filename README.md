@@ -4,7 +4,7 @@
 
 鱼鱼准备了一百多种可爱的动作表情，平时会在桌面上呼吸、哼歌、伸懒腰、吃零食、玩耍，到了饭点会认真吃饭，到了节日会换上应景的小活动，被点一下、被拎起来时也有专门设计的反应。每次启动，她都会提起裙摆向主人行礼请安；关闭时，也会用同样的礼仪和主人道别。标准版还能通过 ACP 一键连接 21 款主流 CLI Agent，陪主人进行稳定的长对话。
 
-当前版本为 **1.1.28**，安装包请前往 [GitHub Releases](https://github.com/l769829723/big-blue-fish-desktop-pet/releases/latest) 下载。
+当前版本为 **1.1.29**，安装包请前往 [GitHub Releases](https://github.com/l769829723/big-blue-fish-desktop-pet/releases/latest) 下载。
 
 <p align="center">
   <img src="docs/images/bigbluefish-rest-transparent.png" width="38%" alt="蓝色大肥鱼休息状态" />
@@ -61,15 +61,15 @@
 
 | 平台 | 标准版 | 无ACP版 |
 | --- | --- | --- |
-| Windows x64 | `BigBlueFish-v1.1.28-OCR-Setup.exe` | `BigBlueFish-v1.1.28-Safe-OCR-Setup.exe` |
-| Ubuntu／Debian x64 | `BigBlueFish-v1.1.28-Linux-x64.deb` | `BigBlueFish-v1.1.28-Safe-Linux-x64.deb` |
+| Windows x64 | `BigBlueFish-v1.1.29-OCR-Setup.exe` | `BigBlueFish-v1.1.29-Safe-OCR-Setup.exe` |
+| Ubuntu／Debian x64 | `BigBlueFish-v1.1.29-Linux-x64.deb` | `BigBlueFish-v1.1.29-Safe-Linux-x64.deb` |
 
 在 Windows 上，双击安装器即可开始部署。安装器会把桌宠程序、动画资源、.NET 运行时和本地推理运行时一并安装好，默认位置是 `Program Files` 下的“蓝色大肥鱼”文件夹，并创建桌面和开始菜单快捷方式。随后安装器会请主人选择模型的准备方式：Hugging Face（推荐）、国内源（稳定）或手动安装。自动下载的模型约 2.7 GB，下载完成后会经过 SHA-256 校验，中途断开也能从已有进度继续。下载时如果想改用手动安装，可以选择“放弃并转为手动安装”；手动安装会显示模型应放入的文件夹，并打开模型来源页面，也可以直接选择已经下载好的 GGUF 文件。卸载时可以在卸载界面勾选“保留模型和设置”。
 
 在 Ubuntu／Debian 上，下载对应的 `.deb` 后，在其所在目录执行：
 
 ```bash
-sudo apt install ./BigBlueFish-v1.1.28-Linux-x64.deb
+sudo apt install ./BigBlueFish-v1.1.29-Linux-x64.deb
 ```
 
 安装无ACP版时换成对应的文件名即可。安装完成后，可以从应用菜单或 `bigbluefish` 命令启动鱼鱼，再到设置的“模型与信息”中点击“安装模型”，为她准备本地模型。
@@ -95,7 +95,7 @@ Hugging Face 来源为 [Biomanticus/Qwen3.5-4B-heretic-gguf](https://huggingface
 ### 连接方法
 
 1. 按所选 Agent 自己的说明把它装好，并完成登录和模型配置。
-2. 打开鱼鱼的设置，进入“连接 Agent”页面，打开“连接本机兼容的 CLI Harness”，阅读并确认弹出的权限说明。
+2. 打开鱼鱼的设置，进入“Agent 与 MCP”页面，打开“连接本机兼容的 CLI Harness”，阅读并确认弹出的权限说明。
 3. 从下拉列表里选一个 Agent。电脑上检测到的 Agent 排在前面；刚装好新的 Agent 时，点一下“重新检测”。
 4. 等页面显示出连接状态、Agent 版本、模型和会话编号，就可以开始用了。
 
@@ -132,6 +132,24 @@ Claude Code、Codex CLI 和 Pi 需要经过 ACP 适配器连接。电脑上还�
 **风险提醒：** 连接 Agent 后，截屏会被传递给所连接的 Agent，其处理方式由 Agent 决定，可能导致主人的信息被上传或保存。开启连接时确认的权限对所选 Agent 统一生效，Agent 可以使用上面列出的全部能力，不按工具分别授权。设置中的“感知当前应用”开关控制日常关心时的自动读屏，Agent 通过工具主动请求的截图不受这个开关影响。Agent 连接默认关闭，开启前软件会弹窗说明这些权限，请只连接你信任的 Agent。
 
 适配方式、登录、工作区和会话的完整说明见[连接本机 CLI Harness](docs/ACP.md)，内部工具的参数见[内部工具参考](docs/MCP.md)。
+
+### 不接 Agent，也能用 MCP 指挥鱼鱼
+
+设置“Agent 与 MCP”页底部还有一个独立开关：“允许外部 MCP 客户端控制鱼鱼（只说与动）”。打开后在页面里复制配置，加入 Claude Desktop、Cursor、Codex 等支持 MCP 的客户端并重启它，就能让鱼鱼说出指定的话、播放指定的动作：
+
+```json
+{
+  "mcpServers": {
+    "big-blue-fish": {
+      "command": "C:\\Program Files\\蓝色大肥鱼\\当前版本\\BigBlueFish.Mcp.exe"
+    }
+  }
+}
+```
+
+外部客户端只拿到 `say`、`say_next`、`play_action`、`interrupt_action` 和 `list_actions` 五个工具：`say` 让气泡立刻显示传入的原文，`list_actions` 列出 106 个动作的精确名称，`play_action` 排队播放，`interrupt_action` 立即切换。它不能修改设置、截图、读写 Agent 对话，也看不到点击、拖动和输入记录；不需要连接 Agent、安装本地模型，也不受“让 Agent 安排日常关心”的影响。
+
+接口只在本机命名管道上提供，不开放网络端口。开关默认关闭；开启前会说明这台电脑上以你的身份运行的程序都能让鱼鱼说话和播放动作，不再逐个确认。关闭开关或退出桌宠后连接立即失效。
 
 ## 无ACP版
 

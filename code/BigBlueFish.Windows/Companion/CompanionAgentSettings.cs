@@ -1,8 +1,10 @@
 #if !COMPANION_SAFE
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -63,6 +65,31 @@ public partial class MainWindow
         extra.Children.Add(ModernUI.Button("编辑人设", () => EditAgentPersona(owner)));
         var details = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.SlateGray };
         extra.Children.Add(new Expander { Header = "连接详情", Content = details, Margin = new(0, 10, 0, 8) });
+        // External MCP stays available without a CLI Agent connection, so it is not part of `extra`.
+        panel.Children.Add(new TextBlock { Text = "外部 MCP 接入", FontWeight = FontWeights.SemiBold, Margin = new(0, 20, 0, 6) });
+        var external = new CheckBox { Content = ControlTools.ExternalMcpLabel, IsChecked = preferences.ExternalMcpEnabled, Margin = new(0, 0, 0, 5) };
+        panel.Children.Add(external);
+        panel.Children.Add(ModernUI.Text(ControlTools.ExternalMcpDescription));
+        var externalDetails = new StackPanel { Visibility = preferences.ExternalMcpEnabled ? Visibility.Visible : Visibility.Collapsed, Margin = new(0, 8, 0, 0) };
+        panel.Children.Add(externalDetails);
+        externalDetails.Children.Add(new TextBlock { Text = "把下面这段配置加入支持 MCP 的客户端，然后重启该客户端：", Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap });
+        var configuration = new TextBox { Text = ExternalMcpConfiguration(), IsReadOnly = true, IsReadOnlyCaretVisible = false,
+            TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), FontSize = 12, MinHeight = 84,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto, BorderBrush = new SolidColorBrush(Color.FromRgb(226, 233, 243)),
+            Padding = new Thickness(8), Margin = new(0, 6, 0, 6) };
+        System.Windows.Automation.AutomationProperties.SetName(configuration, "外部 MCP 客户端配置");
+        externalDetails.Children.Add(configuration);
+        var externalRow = new WrapPanel();
+        var copyStatus = new TextBlock { Foreground = Brushes.SlateGray, VerticalAlignment = VerticalAlignment.Center, Margin = new(0, 0, 10, 0) };
+        var externalStatus = new TextBlock { Foreground = Brushes.SlateGray, Margin = new(0, 4, 0, 0) };
+        externalRow.Children.Add(ModernUI.Button("复制配置", () => {
+            try { Clipboard.SetText(configuration.Text); copyStatus.Text = "已复制"; }
+            catch (Exception e) { copyStatus.Text = "复制失败，请手动选择文本"; DiagnosticLog.Write(DiagnosticEvent.SettingsChanged, error: e); }
+        }));
+        externalRow.Children.Add(copyStatus);
+        externalDetails.Children.Add(externalRow);
+        externalDetails.Children.Add(externalStatus);
+        panel.Children.Add(ModernUI.Text("接口只在本机通过命名管道提供，不开放网络端口；关闭开关或退出桌宠后连接立即失效。"));
         var clock = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         void Refresh()
         {
@@ -72,6 +99,7 @@ public partial class MainWindow
             state.Text = agent?.Status ?? "尚未连接";
             description.Text = agent?.Detail ?? "选择已安装的 Harness，连接后双击鱼鱼即可对话。";
             details.Text = $"程序：{agent?.ExecutablePath ?? "尚未启动"}\nAgent 版本：{agent?.Version}\n模型：{agent?.CurrentModel}\n对话编号：{agent?.SessionId}\n内部工具连接：{mcpServer?.Connections ?? 0}\n输入会发起对话；点击响应：{preferences.AgentRespondToClick}；拖动响应：{preferences.AgentRespondToDrag}（可由 Agent 调整）";
+            externalStatus.Text = preferences.ExternalMcpEnabled ? $"已连接 {externalMcpServer?.Connections ?? 0} 个外部客户端" : "";
             wake.Text = preferences.PuppetMode && preferences.AgentDailySpeech
                 ? "下一次日常关心：" + (agent?.NextWake ?? "等待 Agent 安排")
                 : preferences.PuppetMode ? "Agent 安排日常关心的时机，本地模型负责吐字。下一次关心：" + (agent?.NextWake ?? "等待 Agent 预约") : preferences.AgentDailySpeech ? "鱼鱼决定何时关心主人，Agent 编写关心的话。" : "鱼鱼按自己的节奏关心主人，日常说话使用内置模型。";
@@ -103,15 +131,40 @@ public partial class MainWindow
                 if (on && !await ConfirmMcp(owner, "连接本机 Agent", ControlTools.PrivacyWarning)) { enabled.IsChecked = false; return; }
                 if (!on) SetPuppetMode(false);
                 preferences.AgentEnabled = on;
-                if (on) InitializeMcp(); else StopMcp();
+                if (on) InitializeMcp(); else StopAgentMcp();
                 extra.Visibility = on ? Visibility.Visible : Visibility.Collapsed; puppet.IsChecked = preferences.PuppetMode;
                 SaveCompanion(); Refresh();
             }
             catch (Exception e) { ModernUI.Error(owner, "连接设置失败", e); }
             finally { enabled.IsEnabled = true; }
         };
+        external.Click += async (_, _) => {
+            external.IsEnabled = false;
+            try
+            {
+                bool on = external.IsChecked == true;
+                if (on && !await ConfirmMcp(owner, ControlTools.ExternalMcpTitle, ControlTools.ExternalMcpWarning)) { external.IsChecked = false; return; }
+                preferences.ExternalMcpEnabled = on;
+                if (on) InitializeMcp(); else StopExternalMcp();
+                externalDetails.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+                SaveCompanion(); Refresh();
+            }
+            catch (Exception e) { ModernUI.Error(owner, "外部 MCP 设置失败", e); }
+            finally { external.IsEnabled = true; }
+        };
         clock.Tick += (_, _) => Refresh(); Refresh(); clock.Start(); return clock.Stop;
     }
+
+    private static string ExternalMcpConfiguration() => JsonSerializer.Serialize(new
+    {
+        mcpServers = new Dictionary<string, object>
+        {
+            ["big-blue-fish"] = new Dictionary<string, object>
+            {
+                ["command"] = Path.Combine(AppContext.BaseDirectory, "BigBlueFish.Mcp.exe")
+            }
+        }
+    }, new JsonSerializerOptions { WriteIndented = true });
 
     private void EditAgentPersona(Window owner)
     {

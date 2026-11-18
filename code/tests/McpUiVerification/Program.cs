@@ -202,12 +202,13 @@ internal static class Program
     }
     sealed class Client : IDisposable
     {
-        readonly NamedPipeClientStream pipe = new(".", (string)Read("agentPipe"), PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+        readonly NamedPipeClientStream pipe;
         readonly StreamReader reader; readonly StreamWriter writer;
         readonly System.Threading.Channels.Channel<string> incoming = System.Threading.Channels.Channel.CreateUnbounded<string>();
         internal readonly List<JsonElement> Events = [];
-        internal Client()
+        internal Client(string? pipeName = null)
         {
+            pipe = new(".", pipeName ?? (string)Read("agentPipe"), PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
             Complete(pipe.ConnectAsync(5000).ContinueWith(t => { t.GetAwaiter().GetResult(); return true; }));
             reader = new(pipe, new UTF8Encoding(false)); writer = new(pipe, new UTF8Encoding(false)) { AutoFlush = true };
             _ = Task.Run(async () => {
@@ -287,7 +288,7 @@ internal static class Program
             pet = new MainWindow(); pet.Show(); Wait(() => (bool)Read("companionReady"), 20, "Actual video initialized");
             Invoke("OpenCompanionSettings"); Pump(150);
             var settings = (Window)Read("companionSettings");
-            Descendants<Button>(settings).Single(b => b.Content?.ToString() == "连接 Agent").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
+            Descendants<Button>(settings).Single(b => b.Content?.ToString() == "Agent 与 MCP").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
             var toggle = Descendants<CheckBox>(settings).Single(c => c.Content?.ToString() == "连接本机兼容的 CLI Harness");
             bool sawWarning = false;
             var dialogTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
@@ -300,6 +301,41 @@ internal static class Program
             dialogTimer.Start(); toggle.IsChecked = true; toggle.RaiseEvent(new RoutedEventArgs(CheckBox.ClickEvent));
             Wait(() => !(bool)Read("mcpConsentOpen"),5,"Asynchronous privacy confirmation finishes after cancellation"); dialogTimer.Stop();
             Check(sawWarning && toggle.IsChecked == false, "Privacy warning shown; cancellation leaves MCP off");
+            var externalToggle = Descendants<CheckBox>(settings).Single(c => c.Content?.ToString() == ControlTools.ExternalMcpLabel);
+            var externalConfig = Descendants<TextBox>(settings).Single(t => System.Windows.Automation.AutomationProperties.GetName(t) == "外部 MCP 客户端配置");
+            Check(externalToggle.IsChecked == false && externalConfig.Text.Contains("BigBlueFish.Mcp.exe") && externalConfig.Text.Contains("big-blue-fish"),
+                "Agent page offers an off-by-default external MCP switch with a copyable client configuration");
+            bool sawExternalWarning = false;
+            var externalTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+            externalTimer.Tick += (_, _) => {
+                var dialog = app.Windows.Cast<Window>().FirstOrDefault(w => w.Title == ControlTools.ExternalMcpTitle); if (dialog == null) return;
+                sawExternalWarning = Descendants<TextBlock>(dialog).Any(t => t.Text == ControlTools.ExternalMcpWarning);
+                Descendants<Button>(dialog).Single(b => b.Content?.ToString() == "取消").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            };
+            externalTimer.Start(); externalToggle.IsChecked = true; externalToggle.RaiseEvent(new RoutedEventArgs(CheckBox.ClickEvent));
+            Wait(() => !(bool)Read("mcpConsentOpen"), 5, "External MCP confirmation finishes after cancellation"); externalTimer.Stop();
+            Check(sawExternalWarning && externalToggle.IsChecked == false && pet.GetType().GetField("externalMcpServer", Access)!.GetValue(pet) == null,
+                "External MCP warning displayed; cancellation leaves the interface closed");
+            var acceptExternal = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+            acceptExternal.Tick += (_, _) => {
+                var dialog = app.Windows.Cast<Window>().FirstOrDefault(w => w.Title == ControlTools.ExternalMcpTitle); if (dialog == null) return;
+                acceptExternal.Stop(); Descendants<Button>(dialog).Single(b => b.Content?.ToString() == "了解并开启").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            };
+            acceptExternal.Start(); externalToggle.IsChecked = true; externalToggle.RaiseEvent(new RoutedEventArgs(CheckBox.ClickEvent));
+            Wait(() => pet.GetType().GetField("externalMcpServer", Access)!.GetValue(pet) != null, 5, "Confirming the external MCP warning starts its own server");
+            Check(((CompanionPreferences)Read("preferences")).ExternalMcpEnabled && File.ReadAllText("preferences.json").Contains("ExternalMcpEnabled"),
+                "External MCP switch persists independently of the Agent connection");
+            using (var external = new Client(ControlTools.PipeName))
+            {
+                var externalTools = external.Request("tools/list", new { }).GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToArray();
+                Check(externalTools.SequenceEqual(ControlTools.ExternalTools), "External pipe exposes exactly the speech and action tools");
+                external.Data("say", new { text = "外部 MCP 气泡原文" });
+                Wait(() => ((TextBlock)Read("bubbleText")).Text == "外部 MCP 气泡原文", 5, "External client text reaches the real bubble without an Agent");
+                Check(!((CompanionPreferences)Read("preferences")).AgentEnabled, "External speech worked with the Agent connection still off");
+                Check(external.Call("update_settings", new { settings = new { Scale = 1.5 } }).GetProperty("isError").GetBoolean(), "External client cannot mutate settings");
+                Check(external.Call("capture_screen", new { max_dimension = 1280 }).GetProperty("isError").GetBoolean(), "External client cannot capture the screen");
+            }
+            Wait(() => pet.GetType().GetField("externalMcpServer", Access)!.GetValue(pet) is ControlServer { Connections: 0 }, 5, "External server stays available after its client disconnects");
             var prefs = Read("preferences");
             prefs.GetType().GetProperty("AgentHarnessId")!.SetValue(prefs, "opencode");
             var harnessSelector = Descendants<ComboBox>(settings).Single(c => c.Items.OfType<ComboBoxItem>().Any(i => (string?)i.Tag == "opencode"));
@@ -431,6 +467,7 @@ internal static class Program
             Check((bool)Invoke("TryOpenMcpInput")!, "Disconnected input can show connection feedback");
             Check((bool)pet.GetType().GetProperty("PuppetActive", Access)!.GetValue(pet)! && (string)Read("currentAction") == "待机呼吸休闲", "Disconnect keeps puppet mode and fixed idle");
             Invoke("SetPuppetMode", false); Invoke("StopMcp");
+            Check(pet.GetType().GetField("externalMcpServer", Access)!.GetValue(pet) == null, "Stopping MCP also closes the external interface");
             Check((string)Read("animationPhase") == "Idle", "Explicitly leaving puppet restores ordinary idle selection");
             Field("exitReady", true); pet.Close();
             Console.WriteLine($"MCP actual WPF integration: {checks} checks passed. {sandbox}"); return 0;

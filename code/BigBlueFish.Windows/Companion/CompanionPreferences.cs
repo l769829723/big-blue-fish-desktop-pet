@@ -62,6 +62,8 @@ internal sealed class CompanionPreferences
     public bool HideOnFullscreen { get; set; } = true;
     public bool CheckUpdatesOnStartup { get; set; } = true;
     public bool AgentEnabled { get; set; }
+    // External MCP clients get a separate pipe with only speech and action tools.
+    public bool ExternalMcpEnabled { get; set; }
     public string AgentHarnessId { get; set; } = "codex";
     public bool AgentDailySpeech { get; set; }
     public bool AgentRespondToClick { get; set; }
@@ -227,6 +229,7 @@ internal sealed class CompanionPreferences
                     s.McpChatEnabled = false;
                     s.McpWakeEnabled = false;
                     s.AgentDailySpeech = false;
+                    s.ExternalMcpEnabled = false;
 #endif
                     if (!s.McpEnabled) s.PuppetMode = false;
                     s.Scale = double.IsFinite(s.Scale) ? Math.Clamp(s.Scale, .5, 2.0) : 1;

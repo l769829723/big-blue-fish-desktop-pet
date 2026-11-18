@@ -4,7 +4,7 @@
 
 程序提供 Windows x64 与 Linux x64 桌面程序。Windows 主程序为 `BigBlueFish.exe`，使用 WPF；Linux 主程序为 `BigBlueFish.Linux`，使用 Avalonia。两者使用相同的本地模型请求、语气、天气、新闻、地区数据和动画权重代码。Linux 的动画解码、OCR、供电与窗口读取采用 Linux 实现。
 
-每个平台提供标准版和无MCP版。标准版包含可选的ACP连接、内部MCP控制服务与stdio桥接程序；无MCP版在编译时排除控制服务、工具执行器、输入对话窗口与 Agent设置页面，安装包不含 `BigBlueFish.Mcp` 和 `BigBlueFish.Control.dll`。无MCP版读取设置时强制关闭 AgentEnabled、AgentDailySpeech、PuppetMode。无MCP版的更新检查选择无MCP版安装包。
+每个平台提供标准版和无MCP版。标准版包含可选的ACP连接、内部MCP控制服务、供外部MCP客户端使用的“只说与动”控制服务与stdio桥接程序；无MCP版在编译时排除控制服务、工具执行器、输入对话窗口与 Agent设置页面，安装包不含 `BigBlueFish.Mcp` 和 `BigBlueFish.Control.dll`。无MCP版读取设置时强制关闭 AgentEnabled、ExternalMcpEnabled、AgentDailySpeech、PuppetMode。无MCP版的更新检查选择无MCP版安装包。
 
 Windows 的工作目录为安装目录中的 `data` 子目录，设置、模型及缓存分别位于 `data/preferences.json`、`data/models`、`data/cache`。启动时准备数据目录，将安装根目录中的旧 models、cache、设置、模型选择及运行状态文件移动进去；目标已存在的同名文件优先保留，冲突的源文件留在原处。目录移动不复制整份模型，处理可在中断后继续，直接遇到的链接路径拒绝迁移。程序、动画、图标、GStreamer 动画组件和推理运行时从程序自身目录加载，不依赖进程启动时的工作目录。数据目录准备失败时显示原因并退出。Linux 的程序目录为 `/opt/bigbluefish`，用户数据目录为 `$XDG_DATA_HOME/bigbluefish`，未设置 XDG_DATA_HOME 时使用 `~/.local/share/bigbluefish`；环境变量 BIGBLUEFISH_DATA 可指定数据目录。Linux 将工作目录设为数据目录，程序、动画和推理运行时从程序目录加载。
 
@@ -32,6 +32,7 @@ Windows 使用 `Local\BlueWhaleCompanion` 互斥量限制同一登录会话中�
 | HideOnFullscreen | true | 检测到外部前台全屏时自动隐藏桌宠 |
 | CheckUpdatesOnStartup | true | 启动后检查新版本 |
 | AgentEnabled | false | 连接本机CLI Harness；仅用户界面可修改 |
+| ExternalMcpEnabled | false | 允许外部MCP客户端经稳定管道控制吐字与动作；仅用户界面可修改，与AgentEnabled无关；无MCP版读取时强制关闭 |
 | AgentHarnessId | codex | 首选Harness的目录id；未知id在初始化连接时归到codex |
 | AgentDailySpeech | false | 日常文字交给Agent，不调用本地模型 |
 | PuppetMode | false | 停止自身说话与动作调度；需要AgentEnabled |
@@ -70,7 +71,7 @@ Windows 每次调度依据用户隐藏标志和当前全屏条件校准窗口实
 
 Windows 托盘使用独立的隐藏原生消息窗口与安装路径对应的稳定标识；标识取程序目录规范化绝对路径转大写后的 SHA256 前16字节。图标从随程序的 BigBlueFish.ico 读取32×32尺寸，悬停文字为“蓝色大肥鱼”。注册时先请求添加，失败后尝试修改已有图标，按系统调用的实际返回值记录是否注册成功。添加失败时每3秒重试并记录一次错误及 Win32 错误码；恢复后记录恢复状态。注册成功后每30秒查询系统图标位置，图标丢失时重新注册；Explorer 通知任务栏重建时立即重新注册。隐藏角色不会移除托盘。托盘左键或双击恢复角色，右键打开同样的现代风格菜单，更新通知点击后打开更新窗口；退出时移除图标、停止重试计时并释放消息窗口、图标及菜单。
 
-Windows 设置分为陪伴与外观、说话与天气、模型与供电、日志控制台，以及标准版的连接 Agent。Linux 设置分为桌宠与显示、模型与信息、动作与作息、关于与更新、日志控制台，以及标准版的连接 Agent。天气地区先选国家：中国排在首位，其余国家按英文名排序。中国按省、市、区县三级选择，美国按州、县两级选择，其他国家按一级行政区、城市两级选择（GeoNames cities15000；台湾、香港、澳门归入中国，波多黎各归入美国）。尺寸、作息、供电、联网、模型、全屏隐藏、启动更新等设置保存并生效。
+Windows 设置分为陪伴与外观、说话与天气、模型与供电、日志控制台，以及标准版的 Agent 与 MCP。Linux 设置分为桌宠与显示、模型与信息、动作与作息、关于与更新、日志控制台，以及标准版的 Agent 与 MCP。天气地区先选国家：中国排在首位，其余国家按英文名排序。中国按省、市、区县三级选择，美国按州、县两级选择，其他国家按一级行政区、城市两级选择（GeoNames cities15000；台湾、香港、澳门归入中国，波多黎各归入美国）。尺寸、作息、供电、联网、模型、全屏隐藏、启动更新等设置保存并生效。
 
 MCP 修改设置不打开、关闭或激活设置窗口。窗口已经打开时在原窗口内刷新控件，保留当前页面、滚动位置、窗口位置与最小化或最大化状态；普通设置变更不抢占当前应用的输入焦点，不改变窗口置顶状态。用户显式打开设置时才执行恢复和激活。首次启用关心触发与动作接管仍显示需要用户确认的告知弹窗。
 
@@ -170,7 +171,7 @@ MCP 的 capture_foreground 显式调用上述前台选择与截图路径；captu
 
 ## ACP连接、技能与会话
 
-标准版设置有“连接 Agent”页面。“连接本机兼容的 CLI Harness”默认关闭，开启前异步确认读屏、输入和交互内容将交给所选Agent，可能由其发送给所配置模型服务。取消保持关闭。开启后显示Harness下拉列表、重新检测、安装与登录说明、状态、重新连接、开始新对话、取消当前请求、人设编辑、Agent接管日常吐字和关心触发与动作接管。没有独立的双击对话开关或允许唤醒开关。日常关心的两个开关分别显示为“把日常关心的吐字交给 Agent”（AgentDailySpeech）和“把日常关心的触发和日常的动作切换逻辑交给 Agent”（PuppetMode），前者选择话语的编写者，后者选择关心时机及动作的安排者。
+标准版设置有“Agent 与 MCP”页面。“连接本机兼容的 CLI Harness”默认关闭，开启前异步确认读屏、输入和交互内容将交给所选Agent，可能由其发送给所配置模型服务。取消保持关闭。开启后显示Harness下拉列表、重新检测、安装与登录说明、状态、重新连接、开始新对话、取消当前请求、人设编辑、Agent接管日常吐字和关心触发与动作接管。没有独立的双击对话开关或允许唤醒开关。日常关心的两个开关分别显示为“把日常关心的吐字交给 Agent”（AgentDailySpeech）和“把日常关心的触发和日常的动作切换逻辑交给 Agent”（PuppetMode），前者选择话语的编写者，后者选择关心时机及动作的安排者。
 
 目录包含Claude、Codex、Gemini、DeepSeek Harness、Kimi、Qwen、Antigravity、Copilot、Cursor、OpenCode、Cline、CodeBuddy、Qoder、TRAE、Kiro、Pi、Devin、Grok、Hermes、OpenClaw、MiniMax共21项。原生命令和适配器启动方式见[ACP连接参考](ACP.md)。检测使用PATH；Windows合并当前进程、用户和系统PATH，按exe、cmd、bat、ps1及无扩展名顺序寻找。下拉列表将检测到的项目放在前面，未检测到的标明状态。检测不启动全部Agent。
 
@@ -201,7 +202,9 @@ agent/sessions/工作区路径SHA256/Harness编号.json保存会话编号、程�
 
 ## 内部MCP工具
 
-连接开启后，在用户范围命名管道上创建内部控制服务。管道名包含用户目录哈希和本次进程的随机标识。会话配置包含随包BigBlueFish.Mcp桥接程序的绝对路径及--pipe参数；界面不提供复制外部MCP配置。桥接程序等待管道连接5秒，失败向stderr输出原因；不自行启动桌宠。关闭连接会关闭Agent、内部服务、输入框和确认窗口，清除外部队列并退出关心触发与动作接管。
+连接开启后，在用户范围命名管道上创建内部控制服务。管道名包含用户目录哈希和本次进程的随机标识。会话配置包含随包BigBlueFish.Mcp桥接程序的绝对路径及--pipe参数。桥接程序等待管道连接5秒，失败向stderr输出原因；不自行启动桌宠。关闭连接会关闭Agent、内部服务、输入框和确认窗口，清除外部队列并退出关心触发与动作接管。
+
+外部MCP接入与上述连接相互独立。用户开启“允许外部MCP客户端控制鱼鱼（只说与动）”后，桌宠另在用户范围稳定管道（用户目录哈希，无随机标识）上创建控制服务，桥接程序不带--pipe时连接该管道。该服务只注册say、say_next、play_action、interrupt_action与list_actions；不提供设置、截图、Agent对话、输入框与预约，资源列表为空，resources/read与订阅返回未知资源，也不推送交互事件。初始化说明与`tools/list`都只反映这五项；调用其他工具返回工具错误。设置页展示可直接复制的客户端配置和当前外部连接数；关闭开关、关闭连接或退出进程都会释放该服务与管道。外部接入不依赖本地模型、Agent连接或提线木偶模式，外部原文显示与动作调度和内部工具相同。
 
 内部MCP支持2025-03-26或2025-11-25初始化协商、ping、工具、日志、资源读取订阅与请求取消。收到notifications/initialized后计为工具连接；每客户端输出队列最多128条，输入单条最多1Mi字符。截图通过image content返回。服务不发送sampling请求。
 

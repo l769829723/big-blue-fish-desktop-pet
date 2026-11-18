@@ -15,6 +15,6 @@ try
 }
 catch (Exception e)
 {
-    await Console.Error.WriteLineAsync("蓝色大肥鱼内部工具未连接：请通过标准版的“连接 Agent”页面建立连接。" + e.Message);
+    await Console.Error.WriteLineAsync("蓝色大肥鱼内部工具未连接：请打开鱼鱼设置中的“Agent 与 MCP”页，开启“允许外部 MCP 客户端控制鱼鱼”或连接本机 Agent。 " + e.Message);
     Environment.ExitCode = 1;
 }

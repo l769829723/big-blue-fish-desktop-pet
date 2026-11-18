@@ -2,7 +2,7 @@
 
 使用说明见仓库根目录 [README](../README.md)，发布说明见 [release/README](../release/README.md)。
 
-MCP 的连接配置、工具字段、动作与文字调度、事件消费及错误处理见 [MCP 接入参考](../docs/MCP.md)；共享协议代码在 `BigBlueFish.Control/`，stdio 桥接入口在 `BigBlueFish.Mcp/`，平台执行器位于 Windows 的 `CompanionMcp.cs` 与 Linux 的 `LinuxMcp.cs`。
+MCP 的连接配置、工具字段、动作与文字调度、事件消费及错误处理见 [MCP 接入参考](../docs/MCP.md)；共享协议代码在 `BigBlueFish.Control/`，stdio 桥接入口在 `BigBlueFish.Mcp/`，平台执行器位于 Windows 的 `CompanionMcp.cs` 与 Linux 的 `LinuxMcp.cs`。内部 Agent 使用随机管道，外部客户端使用 `ControlTools.PipeName` 稳定管道，两者都由 `ControlServer` 承载，外部服务只注册吐字与动作工具。
 
 ## 编译与运行
 
@@ -72,7 +72,7 @@ python ./tools/import-regions.py "ok_data_level3.csv" "ok_geo.csv"
 
 默认测试包含 Runner 故障恢复与当前提示词验证、动画权重和日期规则、真实前台窗口捕获、WPF 动画与设置界面验证。实窗测试使用 `.verification/` 的独立设置，复用参考安装目录的模型和运行时。安装器验证项目的 `--lifecycle` 检查普通用户写入权限、Windows 注册、快捷方式和两种数据保留方式的卸载；`--ui-layout <目录>` 检查安装、卸载、模型与更新窗口布局；`--deployment <目录>` 检查模型选择、下载恢复、更新元数据与失败恢复；`--model-ui <目录>` 验证下载失败出口与手动安装确认。
 
-发布脚本生成 `BigBlueFish-v1.1.28-OCR-Setup.exe` 一键安装器；Vision 构建入口仍保留用于历史维护，不随当前公开 Release 同步发布。安装器携带包含 .NET 运行时的 Windows x64 程序，以及已核对的 llama.cpp `b10809` Vulkan 运行时；模型可从 Hugging Face 或 ModelScope 固定来源下载并校验，也支持手动安装或无模型启动。模型选择记录在安装目录的 `data/model-selection.json`。
+发布脚本生成 `BigBlueFish-v1.1.29-OCR-Setup.exe` 一键安装器；Vision 构建入口仍保留用于历史维护，不随当前公开 Release 同步发布。安装器携带包含 .NET 运行时的 Windows x64 程序，以及已核对的 llama.cpp `b10809` Vulkan 运行时；模型可从 Hugging Face 或 ModelScope 固定来源下载并校验，也支持手动安装或无模型启动。模型选择记录在安装目录的 `data/model-selection.json`。
 
 
 根目录 `Version.props` 统一管理项目版本。主程序、安装器和卸载器的产品版本由它生成；Windows 文件版本采用对应的四段格式。构建脚本默认读取该文件，也可以用 `-Version` 指定构建版本。
@@ -81,7 +81,7 @@ python ./tools/import-regions.py "ok_data_level3.csv" "ok_geo.csv"
 
 ## Linux 与无MCP版
 
-当前版本为 1.1.28，Windows 和 Linux 都提供标准版与无MCP版。无MCP版使用 `CompanionEdition=Safe` 编译，排除控制服务、工具执行器和对话输入窗口，安装包不分发 MCP 桥接程序及 Control 程序集；`Safe` 是构建和安装包文件名中的版本类型标识。
+当前版本为 1.1.29，Windows 和 Linux 都提供标准版与无MCP版。无MCP版使用 `CompanionEdition=Safe` 编译，排除控制服务、工具执行器和对话输入窗口，安装包不分发 MCP 桥接程序及 Control 程序集；`Safe` 是构建和安装包文件名中的版本类型标识。
 
 Windows 安装器运行 `../tools/Build-Installer.ps1 -Edition Standard -RuntimeDirectory "Windows运行时目录"`，将 `Standard` 改为 `Safe` 可生成无MCP版。直接构建 Windows 无MCP版使用 `dotnet build ./BigBlueFish.Windows/BigBlueFish.Windows.csproj -c Release -p:Platform=x64 -p:CompanionEdition=Safe -p:RestoreLockedMode=true`。
 
@@ -89,4 +89,4 @@ Linux 使用 Avalonia、GStreamer 与 Tesseract。需要 .NET 10 SDK，以及含
 
 Linux 主入口在 `BigBlueFish.Linux/`，跨平台控制协议在 `BigBlueFish.Control/`，stdio 桥接在 `BigBlueFish.Mcp/`。共享项目分别锁定 Windows 和 Linux 的 RID 依赖；Windows 无MCP版另用 `packages.safe.lock.json`。Linux 的用户数据目录、X11 截图、Wayland 门户及更新行为详见[当前行为规格](../docs/AGENT_FUNCTIONAL_SPEC.md)。
 
-`tests/McpProtocolVerification/` 验证真实 stdio 桥接与协议，`tests/McpUiVerification/` 验证 Windows MCP、窗口焦点、确认交互与拖动，`tests/LinuxVerification/` 验证 Linux 的实际窗口与 MCP；`tests/SafeEditionVerification/` 检查无MCP版的排除结果。测试需分别使用对应平台及版本类型构建。
+`tests/McpProtocolVerification/` 验证真实 stdio 桥接与协议（含外部接入的工具子集与资源隔离），`tests/McpUiVerification/` 验证 Windows MCP、窗口焦点、确认交互与拖动，`tests/LinuxVerification/` 验证 Linux 的实际窗口与 MCP；`tests/SafeEditionVerification/` 检查无MCP版的排除结果。测试需分别使用对应平台及版本类型构建。

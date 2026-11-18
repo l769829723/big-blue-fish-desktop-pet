@@ -1,6 +1,6 @@
 # 连接本机 CLI Harness
 
-标准版的“连接 Agent”页面通过 ACP 驱动用户本机已经安装的 CLI Harness。开启连接、选择 Harness 后，鱼鱼在后台启动该产品的 ACP 入口，建立自己的会话并安装 `big-blue-fish` 操作技能。用户双击鱼鱼即可输入，Enter 换行，Ctrl+Enter 或发送按钮提交。
+标准版的“Agent 与 MCP”页面通过 ACP 驱动用户本机已经安装的 CLI Harness。开启连接、选择 Harness 后，鱼鱼在后台启动该产品的 ACP 入口，建立自己的会话并安装 `big-blue-fish` 操作技能。用户双击鱼鱼即可输入，Enter 换行，Ctrl+Enter 或发送按钮提交。
 
 ## 支持目录
 

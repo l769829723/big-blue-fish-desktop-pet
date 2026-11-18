@@ -74,7 +74,7 @@ public partial class MainWindow
 #if COMPANION_SAFE
         var titles = new[] { "陪伴与外观", "说话与天气", "模型与供电", "日志控制台" };
 #else
-        var titles = new[] { "陪伴与外观", "说话与天气", "模型与供电", "连接 Agent", "日志控制台" };
+        var titles = new[] { "陪伴与外观", "说话与天气", "模型与供电", "Agent 与 MCP", "日志控制台" };
 #endif
         var pages = new StackPanel[titles.Length];
         var views = new ScrollViewer[titles.Length];
@@ -748,7 +748,7 @@ public partial class MainWindow
             w.Close();
             base.Close();
         });
-        Action? disposeMcpSettings = titles.Contains("连接 Agent") ? AddMcpSettings(pages[3], w) : null;
+        Action? disposeMcpSettings = titles.Contains("Agent 与 MCP") ? AddMcpSettings(pages[3], w) : null;
         Action disposeLog = BuildLogConsole(pages[^1], w, () => ReferenceEquals(pageHost.Content, views[^1]));
         foreach (var panel in pages) Card(panel);
         disposeCompanionSettingsContent = () => { timer.Stop(); disposeMcpSettings?.Invoke(); disposeLog(); };

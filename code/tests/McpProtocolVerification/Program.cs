@@ -12,18 +12,19 @@ Process Start() => Process.Start(new ProcessStartInfo(bridge) { RedirectStandard
     ArgumentList = { "--pipe", pipe } })!;
 using var process = Start();
 var notices = new List<JsonElement>();
-async Task<JsonElement> Request(int id, string method, object? parameters = null)
+async Task<JsonElement> Ask(Process target, int id, string method, object? parameters = null)
 {
-    await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { jsonrpc = "2.0", id, method, @params = parameters ?? new { } }));
+    await target.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { jsonrpc = "2.0", id, method, @params = parameters ?? new { } }));
     using var timeout = new CancellationTokenSource(10000);
     while (true)
     {
-        var line = await process.StandardOutput.ReadLineAsync(timeout.Token) ?? throw new IOException("Bridge exited: " + await process.StandardError.ReadToEndAsync());
+        var line = await target.StandardOutput.ReadLineAsync(timeout.Token) ?? throw new IOException("Bridge exited: " + await target.StandardError.ReadToEndAsync());
         using var doc = JsonDocument.Parse(line); var value = doc.RootElement.Clone();
         if (value.TryGetProperty("id", out var found) && found.ValueKind == JsonValueKind.Number && found.GetInt32() == id) return value;
         notices.Add(value);
     }
 }
+async Task<JsonElement> Request(int id, string method, object? parameters = null) => await Ask(process, id, method, parameters);
 var response = await Request(1, "initialize", new { protocolVersion = "2025-11-25", capabilities = new { }, clientInfo = new { name = "verification", version = "1" } });
 Check(response.GetProperty("result").GetProperty("protocolVersion").GetString() == "2025-11-25", "Protocol handshake");
 Check(response.GetProperty("result").GetProperty("instructions").GetString()!.Contains("say"), "Handshake explains tool-only speech");
@@ -82,6 +83,35 @@ using var second = Start();
 await second.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\"}}");
 var secondLine = await second.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5));
 Check(secondLine!.Contains("2025-03-26"), "Reconnect and older protocol negotiation");
+// External clients use a separate stable pipe that exposes speech and action tools only.
+var externalPipe = "BigBlueFish.Verification.External." + Guid.NewGuid().ToString("N");
+using var externalServer = new ControlServer((name, args, token) => Task.FromResult(ControlTools.Text(new { name, args })), externalPipe, ControlTools.ExternalTools, ControlTools.ExternalInstructions);
+Check(externalServer.Restricted, "External server marks itself as restricted");
+using var external = Process.Start(new ProcessStartInfo(bridge) { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
+    ArgumentList = { "--pipe", externalPipe } })!;
+var externalInit = await Ask(external, 1, "initialize", new { protocolVersion = "2025-11-25", capabilities = new { }, clientInfo = new { name = "external", version = "1" } });
+Check(externalInit.GetProperty("result").GetProperty("instructions").GetString() == ControlTools.ExternalInstructions, "External handshake explains the speech and action surface");
+Check(externalInit.GetProperty("result").GetProperty("capabilities").GetProperty("resources").GetProperty("subscribe").GetBoolean() == false, "External handshake advertises no interaction subscription");
+await external.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
+var externalTools = (await Ask(external, 2, "tools/list")).GetProperty("result").GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToArray();
+Check(externalTools.SequenceEqual(ControlTools.ExternalTools), "External tools/list matches the speech and action subset");
+var deniedSettings = await Ask(external, 3, "tools/call", new { name = "update_settings", arguments = new { settings = new { Scale = 1.5 } } });
+Check(deniedSettings.GetProperty("result").GetProperty("isError").GetBoolean(), "External client cannot mutate settings");
+var deniedCapture = await Ask(external, 4, "tools/call", new { name = "capture_screen", arguments = new { } });
+Check(deniedCapture.GetProperty("result").GetProperty("isError").GetBoolean(), "External client cannot capture the screen");
+const string externalLine = "external literal 123";
+var externalSay = await Ask(external, 5, "tools/call", new { name = "say", arguments = new { text = externalLine } });
+Check(!externalSay.GetProperty("result").TryGetProperty("isError", out _) && externalSay.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!.Contains(externalLine), "External say reaches the executor unchanged");
+var externalActions = await Ask(external, 6, "tools/call", new { name = "play_action", arguments = new { action = "吃白饭" } });
+Check(!externalActions.GetProperty("result").TryGetProperty("isError", out _) && externalActions.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!.Contains("play_action"), "External play_action reaches the executor");
+var externalResources = await Ask(external, 7, "resources/list");
+Check(externalResources.GetProperty("result").GetProperty("resources").GetArrayLength() == 0, "External server hides interaction resources");
+var externalRead = await Ask(external, 8, "resources/read", new { uri = "bigbluefish://interactions" });
+Check(externalRead.GetProperty("error").GetProperty("code").GetInt32() == -32602, "External server rejects interaction reads");
+Check(externalServer.Connections == 1, "External connection tracked separately");
+external.StandardInput.Close();
+await external.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+Check(external.ExitCode == 0, "External bridge exits at stdin EOF");
 server.Dispose();
 await second.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
 Check(second.HasExited, "Disabling service disconnects bridge");

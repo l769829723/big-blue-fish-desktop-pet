@@ -423,8 +423,8 @@ internal sealed partial class LinuxPetWindow
         }
         navigation.Children.Add(ActionButton("桌宠与显示", () => Navigate(General))); navigation.Children.Add(ActionButton("模型与信息", () => Navigate(Model))); navigation.Children.Add(ActionButton("动作与作息", () => Navigate(Animation)));
 #if !COMPANION_SAFE
-        void Agent() { Title("连接 Agent"); BuildAgentSettings(body); }
-        navigation.Children.Add(ActionButton("连接 Agent", () => Navigate(Agent)));
+        void Agent() { Title("Agent 与 MCP"); BuildAgentSettings(body); }
+        navigation.Children.Add(ActionButton("Agent 与 MCP", () => Navigate(Agent)));
 #endif
         navigation.Children.Add(ActionButton("关于与更新", () => Navigate(About)));
         refreshLinuxSettings = () => { var offset = scroll.Offset; selectedPage(); scroll.Offset = offset; };

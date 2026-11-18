@@ -20,7 +20,7 @@ static class Program
         try {
             string path=Path.GetFullPath(args[0]);Directory.CreateDirectory(path);
             File.Copy(Path.Combine(AppContext.BaseDirectory,"BigBlueFish.ico"),Path.Combine(path,"BigBlueFish.ico"),true);
-            File.WriteAllText(Path.Combine(path,"preferences.json"),"{\"ModelEnabled\":false,\"PublicInfo\":false,\"CheckUpdatesOnStartup\":false,\"McpEnabled\":true,\"PuppetMode\":true}");
+            File.WriteAllText(Path.Combine(path,"preferences.json"),"{\"ModelEnabled\":false,\"PublicInfo\":false,\"CheckUpdatesOnStartup\":false,\"McpEnabled\":true,\"ExternalMcpEnabled\":true,\"PuppetMode\":true}");
             App.Args=["--test-mode"];var app=new System.Windows.Application {ShutdownMode=ShutdownMode.OnExplicitShutdown};Environment.CurrentDirectory=path;
             pet=new MainWindow();pet.Show();Pump(500);
             object Read(string name)=>pet.GetType().GetField(name,Access)!.GetValue(pet)!;
@@ -30,6 +30,7 @@ static class Program
             Check(pet.GetType().GetMethod("ExecuteMcp",Access)==null,"safe executable contains no MCP executor");
             var prefs=Read("preferences");
             Check(!(bool)prefs.GetType().GetProperty("McpEnabled")!.GetValue(prefs)! && !(bool)prefs.GetType().GetProperty("PuppetMode")!.GetValue(prefs)!,"old enabled flags cannot start MCP or puppet in Safe");
+            Check(!(bool)prefs.GetType().GetProperty("ExternalMcpEnabled")!.GetValue(prefs)!,"safe edition also clears the stored external MCP switch");
             Check((string)Read("animationPhase")=="Startup","safe keeps ordinary welcome animation");
             Invoke("OpenCompanionSettings");Pump(150);var settings=(Window)Read("companionSettings");
             Check(!Descendants<Button>(settings).Any(b=>b.Content?.ToString() is "Agent 与 MCP" or "连接 Agent"),"safe settings have no Agent page");

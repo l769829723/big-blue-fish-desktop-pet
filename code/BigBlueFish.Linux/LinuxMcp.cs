@@ -15,17 +15,20 @@ internal sealed partial class LinuxPetWindow
 {
 #if COMPANION_SAFE
     static bool McpAvailable => false;
+    string? TestPipe => null;
     bool AgentDailyActive => false;
     void TickAgent(DateTime now) { }
     void ConfigureAgent() { }
     bool DispatchAgentDaily() => false;
-    void InitializeMcp() { Preferences.McpEnabled = false; Preferences.PuppetMode = false; Preferences.McpWakeEnabled = false; }
+    void InitializeMcp() { Preferences.McpEnabled = false; Preferences.PuppetMode = false; Preferences.McpWakeEnabled = false; Preferences.ExternalMcpEnabled = false; }
     void StopMcp() { }
     void PublishInteraction(string kind, object detail) { DiagnosticLog.Write(DiagnosticEvent.Interaction, kind: kind); }
     bool TryOpenMcpInput() => false;
 #else
     static bool McpAvailable => true;
+    string? TestPipe => mcpServer == null ? null : agentPipe;
     ControlServer? mcpServer;
+    ControlServer? externalMcpServer;
     AgentCoordinator? agent;
     readonly string agentPipe = ControlTools.PipeName + "." + Guid.NewGuid().ToString("N");
     bool AgentDailyActive => Preferences.AgentEnabled && Preferences.AgentDailySpeech;
@@ -65,6 +68,12 @@ internal sealed partial class LinuxPetWindow
     bool McpInputAvailable => Preferences.AgentEnabled;
     void InitializeMcp()
     {
+        // External clients connect to the predictable per-user pipe served by the bundled
+        // bridge, so they never need the per-conversation Agent pipe.
+        if (Preferences.ExternalMcpEnabled)
+            externalMcpServer ??= new ControlServer(ExecuteMcp, ControlTools.PipeName, ControlTools.ExternalTools, ControlTools.ExternalInstructions);
+        else
+            StopExternalMcp();
         if (!Preferences.AgentEnabled) return;
         mcpServer ??= new ControlServer(ExecuteMcp, agentPipe);
         agent ??= new AgentCoordinator(Path.Combine(Environment.CurrentDirectory, "agent"), Path.Combine(AppContext.BaseDirectory, "BigBlueFish.Mcp"), agentPipe, RequestAgentPermission,
@@ -75,11 +84,14 @@ internal sealed partial class LinuxPetWindow
         ConfigureAgent();
         if (AgentDailyActive) brain.Stop();
     }
-    void StopMcp() { consentWindow?.Close(); mcpInput?.Close(); agent?.Dispose(); agent = null; mcpServer?.Dispose(); mcpServer = null; externalActions.Clear(); nextExternalText = null; }
+    void StopMcp() { consentWindow?.Close(); mcpInput?.Close(); agent?.Dispose(); agent = null; mcpServer?.Dispose(); mcpServer = null; externalActions.Clear(); nextExternalText = null; StopExternalMcp(); }
+    void StopExternalMcp() { externalMcpServer?.Dispose(); externalMcpServer = null; }
+    void StopAgentMcp() { consentWindow?.Close(); mcpInput?.Close(); agent?.Dispose(); agent = null; mcpServer?.Dispose(); mcpServer = null; if (!Preferences.ExternalMcpEnabled) { externalActions.Clear(); nextExternalText = null; } }
     void PublishInteraction(string kind, object detail)
     {
         DiagnosticLog.Write(DiagnosticEvent.Interaction, kind: kind);
         mcpServer?.Publish(kind, detail);
+        externalMcpServer?.Publish(kind, detail);
         if (kind == "click" && Preferences.AgentRespondToClick || kind == "drag_end" && Preferences.AgentRespondToDrag) agent?.Interaction(kind, detail);
     }
     void SetPuppet(bool enabled)
@@ -108,10 +120,10 @@ internal sealed partial class LinuxPetWindow
     {
         return await Dispatcher.UIThread.InvokeAsync(async () => {
             token.ThrowIfCancellationRequested();
-            if (closed || phase == "Exit" || !Preferences.McpEnabled) throw new InvalidOperationException("MCP 接口已关闭或桌宠正在退出。");
+            if (closed || phase == "Exit" || !(Preferences.AgentEnabled || Preferences.ExternalMcpEnabled)) throw new InvalidOperationException("MCP 接口已关闭或桌宠正在退出。");
             switch (name)
             {
-                case "get_settings": return ControlTools.Text(new { settings = CurrentSettings(), state = new { visible = IsVisible, hiddenByUser = hidden, fullscreenHidden, action = currentAction, animationPhase = phase, queuedActions = externalActions.ToArray(), queuedSpeech = nextExternalText, connections = mcpServer?.Connections ?? 0, inputOpen = mcpInput?.IsVisible == true, inputAvailable = McpInputAvailable, agentConnected = agent?.Connected == true, agentStatus = agent?.Status, agentSession = agent?.SessionId, nextWake = agent?.NextWake, modelAvailable = brain.ModelAvailable, modelBusy = brain.Busy, modelStatus = brain.Status } });
+                case "get_settings": return ControlTools.Text(new { settings = CurrentSettings(), state = new { visible = IsVisible, hiddenByUser = hidden, fullscreenHidden, action = currentAction, animationPhase = phase, queuedActions = externalActions.ToArray(), queuedSpeech = nextExternalText, connections = mcpServer?.Connections ?? 0, inputOpen = mcpInput?.IsVisible == true, inputAvailable = McpInputAvailable, externalMcpEnabled = Preferences.ExternalMcpEnabled, externalConnections = externalMcpServer?.Connections ?? 0, agentConnected = agent?.Connected == true, agentStatus = agent?.Status, agentSession = agent?.SessionId, nextWake = agent?.NextWake, modelAvailable = brain.ModelAvailable, modelBusy = brain.Busy, modelStatus = brain.Status } });
                 case "update_settings": await UpdateSettings(args, token); return ControlTools.Text(new { settings = CurrentSettings() });
                 case "request_local_speech": await RequestAgentLocalSpeech(token); return ControlTools.Text(new { generated = modelReply && bubbleFrame.IsVisible });
                 case "list_actions": return ControlTools.Text(policy.Rules.Select(r => new { action = r.Id, pool = r.Pool, weight = r.Weight, duration_seconds = r.Pool == "Greeting" ? 10 / 1.5 : 10 }));
@@ -146,7 +158,7 @@ internal sealed partial class LinuxPetWindow
         var values = new Dictionary<string, object?>();
         foreach (var property in patch.EnumerateObject())
         {
-            if (!ControlTools.SettingNames.Contains(property.Name)) throw new ArgumentException(property.Name == "McpEnabled" ? "MCP 接口只能由用户在设置中开启或关闭。" : "未知设置：" + property.Name);
+            if (!ControlTools.SettingNames.Contains(property.Name)) throw new ArgumentException(property.Name is "McpEnabled" or "AgentEnabled" or "ExternalMcpEnabled" ? "MCP 接口只能由用户在设置中开启或关闭。" : "未知设置：" + property.Name);
             var type = property.Name == "StartupEnabled" ? typeof(bool) : typeof(CompanionPreferences).GetProperty(property.Name)!.PropertyType;
             values[property.Name] = JsonSerializer.Deserialize(property.Value.GetRawText(), type);
         }

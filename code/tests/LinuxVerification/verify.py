@@ -26,7 +26,7 @@ def command(value):
     temporary=data/'test-command.txt.tmp';temporary.write_text(value);temporary.replace(data/'test-command.txt')
 for name in ['test-status.json','test-error.txt','test-command.txt']:
     (data / name).unlink(missing_ok=True)
-(data / 'preferences.json').write_text(json.dumps(dict(ModelEnabled=False,PublicInfo=False,CheckUpdatesOnStartup=False,McpEnabled=True,PuppetMode=True)))
+(data / 'preferences.json').write_text(json.dumps(dict(ModelEnabled=False,PublicInfo=False,CheckUpdatesOnStartup=False,McpEnabled=True,ExternalMcpEnabled=True,PuppetMode=True)))
 log = (data / 'app.log').open('w')
 app = subprocess.Popen([str(payload / 'BigBlueFish.Linux'), '--test-mode'], env=env, stdout=log, stderr=log)
 bridge = fixture = None
@@ -45,7 +45,9 @@ try:
         print(f'Linux Safe actual integration: {count} checks passed.', flush=True)
         sys.exit(0)
     check(state()['Puppet'] and state()['currentAction']=='待机呼吸休闲', 'startup puppet uses fixed breathing idle')
-    bridge = subprocess.Popen([str(payload / 'BigBlueFish.Mcp')], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+    # The internal service listens on a per-conversation pipe; test mode publishes it.
+    pipe = wait(lambda: state().get('mcpPipe'), 20)
+    bridge = subprocess.Popen([str(payload / 'BigBlueFish.Mcp'), '--pipe', pipe], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
     lines = queue.Queue(); events=[]; request_id=0
     def receive():
         for line in bridge.stdout: lines.put(json.loads(line))
@@ -67,7 +69,7 @@ try:
     bridge.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n'); bridge.stdin.flush()
     version=ET.parse(pathlib.Path(__file__).resolve().parents[3]/'Version.props').findtext('.//Version')
     check(init['serverInfo']['version']==version,'real stdio bridge negotiates current version')
-    check(len(request('tools/list')['tools'])==9,'all MCP tools available')
+    check(len(request('tools/list')['tools'])==14,'all internal MCP tools available')
     check(len(content('list_actions'))==106,'same 106 production actions')
     text='主人，Linux 端收到的原文呀~ ABC 123'
     content('say',text=text); wait(lambda: state()['text']==text)
@@ -79,6 +81,39 @@ try:
     check(True,'queued animation begins after actual decoder completion')
     wait(lambda: state()['phase']=='PuppetIdle',14)
     check(True,'external action returns to fixed idle')
+    # A second bridge with no --pipe uses the stable external pipe: speech and actions only.
+    external = subprocess.Popen([str(payload / 'BigBlueFish.Mcp')], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+    try:
+        external_lines = queue.Queue()
+        threading.Thread(target=lambda: [external_lines.put(json.loads(line)) for line in external.stdout], daemon=True).start()
+        counter = [0]
+        def ask(method, params={}):
+            counter[0] += 1; number = counter[0]
+            external.stdin.write(json.dumps(dict(jsonrpc='2.0', id=number, method=method, params=params), ensure_ascii=False) + '\n'); external.stdin.flush()
+            while True:
+                value = external_lines.get(timeout=30)
+                if value.get('id') == number: return value
+        handshake = ask('initialize', dict(protocolVersion='2025-11-25', capabilities={}, clientInfo=dict(name='external verification', version='1')))['result']
+        check('外部 MCP 接口' in handshake['instructions'] and not handshake['capabilities']['resources']['subscribe'], 'external handshake offers speech and actions only')
+        external.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n'); external.stdin.flush()
+        names = [tool['name'] for tool in ask('tools/list')['result']['tools']]
+        check(names == ['list_actions', 'play_action', 'interrupt_action', 'say', 'say_next'], 'external pipe exposes exactly five tools')
+        literal = '外部 MCP 的原文 + 动作'
+        ask('tools/call', dict(name='say', arguments=dict(text=literal)))
+        wait(lambda: state()['text'] == literal, 5)
+        check(True, 'external say reaches the real Linux bubble')
+        ask('tools/call', dict(name='interrupt_action', arguments=dict(action='点击回应-元气挥手')))
+        wait(lambda: state()['currentAction'] == '点击回应-元气挥手', 5)
+        check(True, 'external interrupt_action plays the requested clip')
+        denied = ask('tools/call', dict(name='update_settings', arguments=dict(settings=dict(Scale=1.5))))
+        check(denied['result'].get('isError') is True, 'external client cannot change settings')
+        denied = ask('tools/call', dict(name='capture_screen', arguments=dict()))
+        check(denied['result'].get('isError') is True, 'external client cannot capture the screen')
+        check('error' in ask('resources/read', dict(uri='bigbluefish://interactions')), 'external client cannot read interaction history')
+        external.stdin.close(); check(external.wait(timeout=5) == 0, 'external bridge exits when its client closes stdin')
+    finally:
+        if external.poll() is None: external.terminate(); external.wait(timeout=5)
+        external = None
     content('say_next',text='下次自动节奏')
     command('speech-test'); time.sleep(2)
     check(state()['text']==text and state()['modelPid'] is None,'puppet rejects speech test and does not consume scheduled speech')
