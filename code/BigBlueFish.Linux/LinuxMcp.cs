@@ -4,8 +4,8 @@ using Avalonia.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
-#if !COMPANION_SAFE
 using BigBlueFish.Control;
+#if !COMPANION_SAFE
 using BigBlueFish.Agent;
 #endif
 
@@ -13,25 +13,29 @@ namespace BigBlueFish.Windows;
 
 internal sealed partial class LinuxPetWindow
 {
+    // Speech and action handling is shared: the Safe edition serves the same restricted
+    // external MCP surface without compiling the Agent connection or the other tools.
+    ControlServer? externalMcpServer;
 #if COMPANION_SAFE
     static bool McpAvailable => false;
-    string? TestPipe => null;
+    string? TestPipe => externalMcpServer == null ? null : ControlTools.PipeName;
     bool AgentDailyActive => false;
     void TickAgent(DateTime now) { }
     void ConfigureAgent() { }
     bool DispatchAgentDaily() => false;
-    void InitializeMcp() { Preferences.McpEnabled = false; Preferences.PuppetMode = false; Preferences.McpWakeEnabled = false; Preferences.ExternalMcpEnabled = false; }
-    void StopMcp() { }
+    void InitializeMcp() { Preferences.McpEnabled = false; Preferences.PuppetMode = false; Preferences.McpWakeEnabled = false; InitializeExternalMcp(); }
+    void StopMcp() => StopExternalMcp();
+    void MarkAgentSpoken() { }
     void PublishInteraction(string kind, object detail) { DiagnosticLog.Write(DiagnosticEvent.Interaction, kind: kind); }
     bool TryOpenMcpInput() => false;
 #else
     static bool McpAvailable => true;
     string? TestPipe => mcpServer == null ? null : agentPipe;
     ControlServer? mcpServer;
-    ControlServer? externalMcpServer;
     AgentCoordinator? agent;
     readonly string agentPipe = ControlTools.PipeName + "." + Guid.NewGuid().ToString("N");
     bool AgentDailyActive => Preferences.AgentEnabled && Preferences.AgentDailySpeech;
+    void MarkAgentSpoken() => agent?.MarkSpoken();
     async Task<AgentSpeechBrief> BuildAgentSpeechBrief(string kind, CancellationToken token)
     {
         bool useWeather = Preferences.PublicInfo && Preferences.WeatherEnabled;
@@ -70,10 +74,7 @@ internal sealed partial class LinuxPetWindow
     {
         // External clients connect to the predictable per-user pipe served by the bundled
         // bridge, so they never need the per-conversation Agent pipe.
-        if (Preferences.ExternalMcpEnabled)
-            externalMcpServer ??= new ControlServer(ExecuteMcp, ControlTools.PipeName, ControlTools.ExternalTools, ControlTools.ExternalInstructions);
-        else
-            StopExternalMcp();
+        InitializeExternalMcp();
         if (!Preferences.AgentEnabled) return;
         mcpServer ??= new ControlServer(ExecuteMcp, agentPipe);
         agent ??= new AgentCoordinator(Path.Combine(Environment.CurrentDirectory, "agent"), Path.Combine(AppContext.BaseDirectory, "BigBlueFish.Mcp"), agentPipe, RequestAgentPermission,
@@ -85,7 +86,6 @@ internal sealed partial class LinuxPetWindow
         if (AgentDailyActive) brain.Stop();
     }
     void StopMcp() { consentWindow?.Close(); mcpInput?.Close(); agent?.Dispose(); agent = null; mcpServer?.Dispose(); mcpServer = null; externalActions.Clear(); nextExternalText = null; StopExternalMcp(); }
-    void StopExternalMcp() { externalMcpServer?.Dispose(); externalMcpServer = null; }
     void StopAgentMcp() { consentWindow?.Close(); mcpInput?.Close(); agent?.Dispose(); agent = null; mcpServer?.Dispose(); mcpServer = null; if (!Preferences.ExternalMcpEnabled) { externalActions.Clear(); nextExternalText = null; } }
     void PublishInteraction(string kind, object detail)
     {
@@ -126,7 +126,8 @@ internal sealed partial class LinuxPetWindow
                 case "get_settings": return ControlTools.Text(new { settings = CurrentSettings(), state = new { visible = IsVisible, hiddenByUser = hidden, fullscreenHidden, action = currentAction, animationPhase = phase, queuedActions = externalActions.ToArray(), queuedSpeech = nextExternalText, connections = mcpServer?.Connections ?? 0, inputOpen = mcpInput?.IsVisible == true, inputAvailable = McpInputAvailable, externalMcpEnabled = Preferences.ExternalMcpEnabled, externalConnections = externalMcpServer?.Connections ?? 0, agentConnected = agent?.Connected == true, agentStatus = agent?.Status, agentSession = agent?.SessionId, nextWake = agent?.NextWake, modelAvailable = brain.ModelAvailable, modelBusy = brain.Busy, modelStatus = brain.Status } });
                 case "update_settings": await UpdateSettings(args, token); return ControlTools.Text(new { settings = CurrentSettings() });
                 case "request_local_speech": await RequestAgentLocalSpeech(token); return ControlTools.Text(new { generated = modelReply && bubbleFrame.IsVisible });
-                case "list_actions": return ControlTools.Text(policy.Rules.Select(r => new { action = r.Id, pool = r.Pool, weight = r.Weight, duration_seconds = r.Pool == "Greeting" ? 10 / 1.5 : 10 }));
+                case "list_actions": case "play_action": case "interrupt_action": case "say": case "say_next":
+                    return ExecuteSpeechOrAction(name, args);
                 case "capture_foreground": case "capture_screen":
                     var handle = CompanionNative.ResolveForeground(CompanionNative.GetForegroundWindow(), lastForeground);
                     var identity = name == "capture_foreground" ? CompanionNative.ForegroundIdentity(handle) : "全部显示器组成的完整桌面";
@@ -135,17 +136,6 @@ internal sealed partial class LinuxPetWindow
                     token.ThrowIfCancellationRequested();
                     if (!Preferences.McpEnabled) throw new OperationCanceledException();
                     return ControlTools.Image(image.DataUrl, new { target = name, identity, image.Width, image.Height, capturedAt = DateTimeOffset.UtcNow });
-                case "play_action": case "interrupt_action":
-                    string action = ControlTools.RequiredText(args, "action", 200);
-                    if (!policy.Rules.Any(r => r.Id == action)) throw new ArgumentException("动作不存在。");
-                    if (name == "interrupt_action") { externalActions.Clear(); moveRule = null; Play(policy.Find(action), "External"); }
-                    else { if (externalActions.Count >= 100) throw new InvalidOperationException("待播放动作队列已满。"); externalActions.Enqueue(action); }
-                    return ControlTools.Text(new { action, started = name == "interrupt_action", queued = externalActions.Count });
-                case "say": case "say_next":
-                    string text = ControlTools.RequiredText(args, "text");
-                    agent?.MarkSpoken();
-                    if (name == "say") SayExternal(text); else nextExternalText = text;
-                    return ControlTools.Text(new { displayed = name == "say", pending = name == "say_next", text });
                 case "get_operation_guide": case "get_wakeups": case "schedule_wakeup": case "cancel_wakeup":
                     return ControlTools.Text(agent?.ExecuteTool(name, args) ?? throw new InvalidOperationException("Agent 尚未连接。"));
                 default: throw new ArgumentException("未知 MCP 工具。");
@@ -261,4 +251,39 @@ internal sealed partial class LinuxPetWindow
         clock.Start(); Follow(); dialog.Activate(); return true;
     }
 #endif
+
+    void InitializeExternalMcp()
+    {
+        if (!Preferences.ExternalMcpEnabled) { StopExternalMcp(); return; }
+        externalMcpServer ??= new ControlServer(ExecuteExternalMcp, ControlTools.PipeName, ControlTools.ExternalTools, ControlTools.ExternalInstructions);
+    }
+    void StopExternalMcp() { externalMcpServer?.Dispose(); externalMcpServer = null; }
+    async Task<object> ExecuteExternalMcp(string name, JsonElement args, CancellationToken token)
+    {
+        return await Dispatcher.UIThread.InvokeAsync(async () => {
+            token.ThrowIfCancellationRequested();
+            if (!Preferences.ExternalMcpEnabled || closed || phase == "Exit") throw new InvalidOperationException("MCP 接口已关闭或桌宠正在退出。");
+            return ExecuteSpeechOrAction(name, args);
+        });
+    }
+    object ExecuteSpeechOrAction(string name, JsonElement args)
+    {
+        switch (name)
+        {
+            case "list_actions":
+                return ControlTools.Text(policy.Rules.Select(r => new { action = r.Id, pool = r.Pool, weight = r.Weight, duration_seconds = r.Pool == "Greeting" ? 10 / 1.5 : 10 }));
+            case "play_action": case "interrupt_action":
+                string action = ControlTools.RequiredText(args, "action", 200);
+                if (!policy.Rules.Any(r => r.Id == action)) throw new ArgumentException("动作不存在。");
+                if (name == "interrupt_action") { externalActions.Clear(); moveRule = null; Play(policy.Find(action), "External"); }
+                else { if (externalActions.Count >= 100) throw new InvalidOperationException("待播放动作队列已满。"); externalActions.Enqueue(action); }
+                return ControlTools.Text(new { action, started = name == "interrupt_action", queued = externalActions.Count });
+            case "say": case "say_next":
+                string text = ControlTools.RequiredText(args, "text");
+                MarkAgentSpoken();
+                if (name == "say") SayExternal(text); else nextExternalText = text;
+                return ControlTools.Text(new { displayed = name == "say", pending = name == "say_next", text });
+            default: throw new ArgumentException("未知 MCP 工具。");
+        }
+    }
 }

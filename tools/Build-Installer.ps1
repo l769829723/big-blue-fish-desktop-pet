@@ -36,10 +36,8 @@ New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 New-Item -ItemType Directory -Force -Path $payload | Out-Null
 & $sdk publish "$root/code/BigBlueFish.Windows/BigBlueFish.Windows.csproj" -c Release -p:Platform=x64 "-p:CompanionEdition=$Edition" "-p:CompanionInputMode=$InputMode" -r win-x64 --self-contained true -p:RestoreLockedMode=true "-p:Version=$Version" "-p:InformationalVersion=$Version" -o $payload --nologo
 if ($LASTEXITCODE -ne 0) { throw '桌宠发布失败。' }
-if ($Edition -eq 'Standard') {
-    & $sdk publish "$root/code/BigBlueFish.Mcp/BigBlueFish.Mcp.csproj" -c Release -p:Platform=x64 -r win-x64 --self-contained true -p:RestoreLockedMode=true "-p:Version=$Version" -o $payload --nologo
-    if ($LASTEXITCODE -ne 0) { throw 'MCP 桥接程序发布失败。' }
-}
+& $sdk publish "$root/code/BigBlueFish.Mcp/BigBlueFish.Mcp.csproj" -c Release -p:Platform=x64 -r win-x64 --self-contained true -p:RestoreLockedMode=true "-p:Version=$Version" -o $payload --nologo
+if ($LASTEXITCODE -ne 0) { throw 'MCP 桥接程序发布失败。' }
 $runtimeTarget = Join-Path $payload 'runtime'
 New-Item -ItemType Directory -Force -Path $runtimeTarget | Out-Null
 if ($RuntimeDirectory) {

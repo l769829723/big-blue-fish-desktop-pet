@@ -83,7 +83,7 @@ internal static class InstallationLifecycle
         using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
         using var key = machine.CreateSubKey(UninstallRoot + "\\" + RegistrationName(target));
 #if COMPANION_SAFE
-        key.SetValue("DisplayName", "蓝色大肥鱼无MCP版");
+        key.SetValue("DisplayName", "蓝色大肥鱼无ACP版");
 #else
         key.SetValue("DisplayName", "蓝色大肥鱼");
 #endif

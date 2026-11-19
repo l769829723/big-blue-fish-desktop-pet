@@ -1,5 +1,11 @@
 # 更新日志
 
+## 1.1.30 · 2026-11-19
+
+无ACP版也支持外部 MCP 接入。无ACP版仍然不包含 Agent 连接、ACP、内部工具（设置修改、截图、Agent 对话与预约）、双击输入框和 Agent 设置页面，也不分发 Agent 运行时；但它现在和标准版一样随包提供只开放“只说与动”的 MCP 桥接程序，并在设置的“MCP 接入”页提供同一个开关与可直接复制的客户端配置。外部客户端可用的工具仍严格限制为 `list_actions`、`play_action`、`interrupt_action`、`say` 和 `say_next`，资源列表为空，交互事件不推送，越界调用返回工具错误。无ACP版的展示名称保持不变，安装包文件名继续使用 `Safe` 标识。
+
+标准版与无ACP版现在共用说话、动作队列与外部服务实现；标准版原有的内部工具和 Agent 控制不受影响。无ACP版不再强制关闭 `ExternalMcpEnabled`，但 `McpEnabled`、`PuppetMode`、`AgentDailySpeech` 仍在读取时关闭。
+
 ## 1.1.29 · 2026-11-18
 
 设置页新增外部 MCP 接入。标准版可以在“Agent 与 MCP”（原“连接 Agent”）页底部单独打开“允许外部 MCP 客户端控制鱼鱼（只说与动）”，把页面给出的 `mcpServers` 配置加入 Claude Desktop、Cursor、Codex 等支持 MCP 的客户端并重启，就能让鱼鱼说出指定内容、播放指定动作，不需要连接本机 Agent，也不依赖本地模型。外部客户端只得到 `list_actions`、`play_action`、`interrupt_action`、`say` 和 `say_next` 五个工具：`say` 让气泡立即显示传入的原文，`list_actions` 列出 106 个动作的精确名称，`play_action` 排队播放，`interrupt_action` 立即切换；设置修改、前台与全屏截图、Agent 对话、输入框和预约都不可用，交互记录资源为空且不能订阅，越界调用返回工具错误。开关默认关闭，开启前弹窗说明这台电脑上以你的身份运行的程序都能让鱼鱼说话和播放动作，不再逐个确认；关闭开关、关闭连接或退出桌宠后该服务与管道立即释放。外部接入使用按用户目录生成的稳定管道，内部 Agent 仍使用每次会话的随机管道，两者互不影响；无MCP版读取设置时同样强制关闭这个开关。

@@ -417,12 +417,22 @@ internal sealed partial class LinuxPetWindow
             }
         }
         void About() {
-            Title("关于与更新"); body.Children.Add(Paragraph("蓝色大肥鱼 " + typeof(LinuxPetWindow).Assembly.GetName().Version!.ToString(3) + (McpAvailable ? "" : " · 无MCP版")));
+            Title("关于与更新"); body.Children.Add(Paragraph("蓝色大肥鱼 " + typeof(LinuxPetWindow).Assembly.GetName().Version!.ToString(3) + (McpAvailable ? "" : " · 无ACP版")));
             Toggle("每次启动自动检查更新", Preferences.CheckUpdatesOnStartup, value => Preferences.CheckUpdatesOnStartup = value);
             body.Children.Add(ActionButton("检查更新", async () => await CheckUpdates(true)));
         }
         navigation.Children.Add(ActionButton("桌宠与显示", () => Navigate(General))); navigation.Children.Add(ActionButton("模型与信息", () => Navigate(Model))); navigation.Children.Add(ActionButton("动作与作息", () => Navigate(Animation)));
-#if !COMPANION_SAFE
+#if COMPANION_SAFE
+        void ExternalMcpPage() {
+            Title("MCP 接入");
+            var refresh = BuildExternalMcpSettings(body, false);
+            var clock = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+            clock.Tick += (_, _) => refresh();
+            body.DetachedFromVisualTree += (_, _) => clock.Stop();
+            clock.Start(); refresh();
+        }
+        navigation.Children.Add(ActionButton("MCP 接入", () => Navigate(ExternalMcpPage)));
+#else
         void Agent() { Title("Agent 与 MCP"); BuildAgentSettings(body); }
         navigation.Children.Add(ActionButton("Agent 与 MCP", () => Navigate(Agent)));
 #endif

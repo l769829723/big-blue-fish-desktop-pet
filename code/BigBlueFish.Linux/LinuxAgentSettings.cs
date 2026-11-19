@@ -53,19 +53,7 @@ internal sealed partial class LinuxPetWindow
             content.Children.Add(ActionButton("保存", () => { AtomicText.Write(skills.PersonaPath, editor.Text ?? ""); window.Close(); })); window.Show(settings!);
         }));
         var details = Paragraph(""); extra.Children.Add(new Expander { Header = "连接详情", Content = details });
-        // External MCP stays available without a CLI Agent connection, so it lives on the page.
-        body.Children.Add(new TextBlock { Text = "外部 MCP 接入", FontWeight = Avalonia.Media.FontWeight.SemiBold, Margin = new Thickness(0, 20, 0, 6) });
-        var external = new CheckBox { Content = ControlTools.ExternalMcpLabel, IsChecked = Preferences.ExternalMcpEnabled };
-        body.Children.Add(external); body.Children.Add(Paragraph(ControlTools.ExternalMcpDescription));
-        var externalDetails = new StackPanel { Spacing = 6, IsVisible = Preferences.ExternalMcpEnabled };
-        body.Children.Add(externalDetails);
-        externalDetails.Children.Add(Paragraph("把下面这段配置加入支持 MCP 的客户端，然后重启该客户端（选中文字即可复制）："));
-        var configuration = new TextBox { Text = ExternalMcpConfiguration(), IsReadOnly = true, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, MinHeight = 84 };
-        Avalonia.Automation.AutomationProperties.SetName(configuration, "外部 MCP 客户端配置");
-        externalDetails.Children.Add(configuration);
-        var externalStatus = Paragraph("");
-        externalDetails.Children.Add(externalStatus);
-        body.Children.Add(Paragraph("接口只在本机通过命名管道提供，不开放网络端口；关闭开关或退出桌宠后连接立即失效。"));
+        var refreshExternal = BuildExternalMcpSettings(body, true);
         void Refresh()
         {
             refreshWorkspace(); refreshConfiguration();
@@ -73,7 +61,7 @@ internal sealed partial class LinuxPetWindow
                 selected.Content = "Antigravity CLI" + (adapters.FindExecutable(HarnessCatalog.Get("antigravity")) == null ? " · 连接时准备官方组件" : " · 已检测到");
             state.Text = (agent?.Status ?? "尚未连接") + "\n" + (agent?.Detail ?? "选择后连接，双击鱼鱼即可对话。");
             details.Text = $"程序：{agent?.ExecutablePath}\n版本：{agent?.Version}\n模型：{agent?.CurrentModel}\n对话编号：{agent?.SessionId}\n内部工具连接：{mcpServer?.Connections ?? 0}\n点击响应：{Preferences.AgentRespondToClick}；拖动响应：{Preferences.AgentRespondToDrag}（可由 Agent 调整）";
-            externalStatus.Text = Preferences.ExternalMcpEnabled ? $"已连接 {externalMcpServer?.Connections ?? 0} 个外部客户端" : "";
+            refreshExternal();
             wake.Text = Preferences.PuppetMode && Preferences.AgentDailySpeech ? "下一次日常关心：" + (agent?.NextWake ?? "等待 Agent 安排")
                 : Preferences.PuppetMode ? "Agent 安排日常关心的时机，本地模型负责吐字。下一次关心：" + (agent?.NextWake ?? "等待 Agent 预约") : Preferences.AgentDailySpeech ? "鱼鱼决定何时关心主人，Agent 编写关心的话。" : "鱼鱼按自己的节奏关心主人，日常说话使用内置模型。";
             if (Preferences.PuppetMode && agent?.Connected != true) wake.Text += "\nAgent 未连接，鱼鱼保持待机；关闭第二个开关可恢复鱼鱼自己的安排。";
@@ -93,29 +81,9 @@ internal sealed partial class LinuxPetWindow
             }
             finally { enabled.IsEnabled = true; }
         };
-        external.Click += async (_, _) => {
-            external.IsEnabled = false;
-            try
-            {
-                bool on = external.IsChecked == true;
-                if (on && !await Confirm(ControlTools.ExternalMcpTitle, ControlTools.ExternalMcpWarning, "了解并开启")) { external.IsChecked = false; return; }
-                Preferences.ExternalMcpEnabled = on;
-                if (on) InitializeMcp(); else StopExternalMcp();
-                externalDetails.IsVisible = on; Save(); Refresh();
-            }
-            finally { external.IsEnabled = true; }
-        };
         var clock = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         clock.Tick += (_, _) => Refresh(); extra.DetachedFromVisualTree += (_, _) => clock.Stop(); Refresh(); clock.Start();
     }
-
-    static string ExternalMcpConfiguration() => System.Text.Json.JsonSerializer.Serialize(new
-    {
-        mcpServers = new Dictionary<string, object>
-        {
-            ["big-blue-fish"] = new Dictionary<string, object> { ["command"] = Path.Combine(AppContext.BaseDirectory, "BigBlueFish.Mcp") }
-        }
-    }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
 
     async Task<string?> RequestAgentPermission(AgentPermission request, CancellationToken token)
     {

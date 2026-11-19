@@ -8,10 +8,10 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-#if !COMPANION_SAFE
 using BigBlueFish.Control;
-using BigBlueFish.Agent;
 using BigBlueFish.Deployment;
+#if !COMPANION_SAFE
+using BigBlueFish.Agent;
 #endif
 
 namespace BigBlueFish.Windows;
@@ -19,34 +19,35 @@ namespace BigBlueFish.Windows;
 public partial class MainWindow
 {
     private bool externalBubble { get; set; }
+    // Speech and action handling is shared: the Safe edition serves the same restricted
+    // external MCP surface without compiling the Agent connection or the other tools.
+    private ControlServer? externalMcpServer;
+    private readonly Queue<string> mcpActions = new();
+    private string? mcpNextSpeech;
+    private bool mcpConsentOpen;
+    private Window? mcpConsentWindow;
+    private bool HasScheduledMcpSpeech => mcpNextSpeech != null;
 #if COMPANION_SAFE
     private bool AgentDailyActive => false;
     private void TickAgent(DateTime now) { }
     private bool DispatchAgentDaily() => false;
     private bool McpInputAvailable => false;
     private bool PuppetActive => false;
-    private bool HasScheduledMcpSpeech => false;
-    private void InitializeMcp() { preferences.McpEnabled = false; preferences.PuppetMode = false; preferences.McpWakeEnabled = false; preferences.ExternalMcpEnabled = false; }
-    private void StopMcp() { }
-    private bool PlayQueuedMcpAction() => false;
-    private void PublishMcpInteraction(string kind, object detail) { DiagnosticLog.Write(DiagnosticEvent.Interaction, kind: kind); }
-    private bool ConsumeMcpSpeech() => false;
+    private void InitializeMcp() { preferences.McpEnabled = false; preferences.PuppetMode = false; preferences.McpWakeEnabled = false; InitializeExternalMcp(); }
+    private void StopMcp() => StopExternalMcp();
+    private void MarkAgentSpoken() { }
     private Action? AddMcpSettings(StackPanel panel, Window owner) => null;
     private bool TryOpenMcpInput() => false;
+    private void PublishMcpInteraction(string kind, object detail) => DiagnosticLog.Write(DiagnosticEvent.Interaction, kind: kind);
 #else
     private ControlServer? mcpServer;
-    private ControlServer? externalMcpServer;
     private AgentCoordinator? agent;
     private readonly string agentPipe = ControlTools.PipeName + "." + Guid.NewGuid().ToString("N");
-    private readonly Queue<string> mcpActions = new();
-    private string? mcpNextSpeech;
-    private bool mcpConsentOpen;
-    private Window? mcpConsentWindow;
     private Window? mcpInput;
     private bool McpInputAvailable => preferences.AgentEnabled;
     private bool PuppetActive => preferences.AgentEnabled && preferences.PuppetMode;
-    private bool HasScheduledMcpSpeech => mcpNextSpeech != null;
     private bool AgentDailyActive => preferences.AgentEnabled && preferences.AgentDailySpeech;
+    private void MarkAgentSpoken() => agent?.MarkSpoken();
     private async Task<AgentSpeechBrief> BuildAgentSpeechBrief(string kind, CancellationToken token)
     {
         bool useWeather = preferences.PublicInfo && preferences.WeatherEnabled;
@@ -90,10 +91,7 @@ public partial class MainWindow
     {
         // External clients use the predictable per-user pipe served by the bundled bridge,
         // so they never learn or depend on the per-conversation Agent pipe.
-        if (preferences.ExternalMcpEnabled)
-            externalMcpServer ??= new ControlServer(ExecuteMcp, ControlTools.PipeName, ControlTools.ExternalTools, ControlTools.ExternalInstructions);
-        else
-            StopExternalMcp();
+        InitializeExternalMcp();
         if (!preferences.AgentEnabled) return;
         mcpServer ??= new ControlServer(ExecuteMcp, agentPipe);
         agent ??= new AgentCoordinator(Path.Combine(Environment.CurrentDirectory, "agent"),
@@ -105,7 +103,6 @@ public partial class MainWindow
         ConfigureAgent();
         if (AgentDailyActive) brain.Stop();
     }
-    private void StopExternalMcp() { externalMcpServer?.Dispose(); externalMcpServer = null; }
     private void StopAgentMcp()
     {
         mcpConsentWindow?.Close(); mcpInput?.Close();
@@ -148,34 +145,10 @@ public partial class MainWindow
         if (kind == "click" && preferences.AgentRespondToClick || kind == "drag_end" && preferences.AgentRespondToDrag)
             agent?.Interaction(kind, detail);
     }
-    private bool PlayQueuedMcpAction()
-    {
-        if (mcpActions.Count == 0) return false;
-        CancelMovement();
-        PlayAnimation(animationPolicy.Find(mcpActions.Dequeue()), "External");
-        return true;
-    }
     private void RefreshMcpMenuAvailability()
     {
         if (companionContextMenu != null) foreach (int index in new[] { 1, 2 }) if (companionContextMenu.Items[index] is MenuItem item) item.IsEnabled = true;
         if (notifyIcon?.ContextMenuStrip != null) foreach (int index in new[] { 2, 3 }) notifyIcon.ContextMenuStrip.Items[index].Enabled = true;
-    }
-    private void ShowMcpSpeech(string text)
-    {
-        agent?.MarkSpoken();
-        InvalidateSpeechRequests(); EndGreetingNotice();
-        externalBubble = true;
-        bubbleIsModelReply = false;
-        bubbleUntil = DateTime.MaxValue;
-        speech.Show(text, true);
-    }
-    private bool ConsumeMcpSpeech()
-    {
-        if (mcpNextSpeech == null) return false;
-        var text = mcpNextSpeech; mcpNextSpeech = null;
-        nextSpeech = DateTime.UtcNow.Add(preferences.NextSpeechDelay(companionRandom));
-        ShowMcpSpeech(text);
-        return true;
     }
     private async Task<object> ExecuteMcp(string name, JsonElement args, CancellationToken token)
     {
@@ -197,8 +170,8 @@ public partial class MainWindow
                     await UpdateMcpSettings(args, token); return ControlTools.Text(new { settings = CurrentMcpSettings() });
                 case "request_local_speech":
                     await RequestAgentLocalSpeech(token); return ControlTools.Text(new { generated = bubbleIsModelReply && bubble.Visibility == Visibility.Visible });
-                case "list_actions":
-                    return ControlTools.Text(animationPolicy.Rules.Select(r => new { action = r.Id, pool = r.Pool, weight = r.Weight, duration_seconds = r.Pool == "Greeting" ? 10 / 1.5 : 10 }));
+                case "list_actions": case "play_action": case "interrupt_action": case "say": case "say_next":
+                    return ExecuteSpeechOrAction(name, args);
                 case "capture_foreground": case "capture_screen":
                     var handle = CompanionNative.ResolveSpeechForeground(CompanionNative.GetForegroundWindow(), lastExternalForeground);
                     var identity = name == "capture_foreground" ? CompanionNative.ForegroundIdentity(handle) : "全部显示器组成的完整桌面";
@@ -211,26 +184,6 @@ public partial class MainWindow
                     if (!preferences.McpEnabled) throw new OperationCanceledException();
                     if (image == null) throw new IOException("未能截取屏幕。");
                     return ControlTools.Image(image.DataUrl, new { target = name, identity, image.Width, image.Height, capturedAt = DateTimeOffset.UtcNow });
-                case "play_action": case "interrupt_action":
-                    var action = ControlTools.RequiredText(args, "action", 200);
-                    if (!companionReady || !animationPolicy.Rules.Any(r => r.Id == action)) throw new ArgumentException("动作不存在或播放器尚未就绪。");
-                    if (name == "interrupt_action")
-                    {
-                        mcpActions.Clear(); CancelMovement();
-                        PlayAnimation(animationPolicy.Find(action), "External");
-                    }
-                    else
-                    {
-                        if (mcpActions.Count >= 100) throw new InvalidOperationException("待播放动作队列已满。");
-                        mcpActions.Enqueue(action);
-
-                    }
-                    return ControlTools.Text(new { action, started = name == "interrupt_action" || animationPhase == "External" && currentAction == action, queued = mcpActions.Count });
-                case "say": case "say_next":
-                    var text = ControlTools.RequiredText(args, "text");
-                    agent?.MarkSpoken();
-                    if (name == "say") ShowMcpSpeech(text); else mcpNextSpeech = text;
-                    return ControlTools.Text(new { displayed = name == "say", pending = name == "say_next", text });
                 case "get_operation_guide": case "get_wakeups": case "schedule_wakeup": case "cancel_wakeup":
                     return ControlTools.Text(agent?.ExecuteTool(name, args) ?? throw new InvalidOperationException("Agent 尚未连接。"));
                 default: throw new ArgumentException("未知 MCP 工具。");
@@ -310,26 +263,6 @@ public partial class MainWindow
         UpdateCompanionVisibility();
         SaveCompanion();
         refreshCompanionSettings?.Invoke();
-    }
-    private async Task<bool> ConfirmMcp(Window? owner, string title, string message, CancellationToken token = default, string accept = "了解并开启")
-    {
-        if (mcpConsentOpen) throw new InvalidOperationException("请先处理已打开的 MCP 提示窗口。");
-        mcpConsentOpen = true;
-        try
-        {
-            var dialog = new ModernWindow(title, title, message, 640, 460);
-            if (owner?.IsVisible == true) { dialog.Owner = owner; dialog.WindowStartupLocation = WindowStartupLocation.CenterOwner; }
-            bool accepted = false;
-            var finished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            dialog.Closed += (_, _) => finished.TrySetResult(accepted && !token.IsCancellationRequested);
-            mcpConsentWindow = dialog;
-            dialog.Actions.Children.Add(ModernUI.Button(accept, () => { accepted = true; dialog.Close(); }, true));
-            dialog.Actions.Children.Add(ModernUI.Button("取消", dialog.Close));
-            using var registration = token.Register(() => Dispatcher.BeginInvoke(() => { accepted = false; dialog.Close(); }));
-            dialog.Show();
-            return await finished.Task;
-        }
-        finally { mcpConsentWindow = null; mcpConsentOpen = false; }
     }
     private bool TryOpenMcpInput()
     {
@@ -414,4 +347,81 @@ public partial class MainWindow
         Follow(); window.Activate(); return true;
     }
 #endif
+
+    private void InitializeExternalMcp()
+    {
+        if (!preferences.ExternalMcpEnabled) { StopExternalMcp(); return; }
+        externalMcpServer ??= new ControlServer(ExecuteExternalMcp, ControlTools.PipeName, ControlTools.ExternalTools, ControlTools.ExternalInstructions);
+    }
+    private void StopExternalMcp() { externalMcpServer?.Dispose(); externalMcpServer = null; }
+    private Task<object> ExecuteExternalMcp(string name, JsonElement args, CancellationToken token) =>
+        Dispatcher.InvokeAsync(() => {
+            token.ThrowIfCancellationRequested();
+            if (!preferences.ExternalMcpEnabled || companionClosed || exitAnimation) throw new InvalidOperationException("MCP 接口已关闭或桌宠正在退出。");
+            return ExecuteSpeechOrAction(name, args);
+        }).Task;
+    private object ExecuteSpeechOrAction(string name, JsonElement args)
+    {
+        switch (name)
+        {
+            case "list_actions":
+                return ControlTools.Text(animationPolicy.Rules.Select(r => new { action = r.Id, pool = r.Pool, weight = r.Weight, duration_seconds = r.Pool == "Greeting" ? 10 / 1.5 : 10 }));
+            case "play_action": case "interrupt_action":
+                var action = ControlTools.RequiredText(args, "action", 200);
+                if (!companionReady || !animationPolicy.Rules.Any(r => r.Id == action)) throw new ArgumentException("动作不存在或播放器尚未就绪。");
+                if (name == "interrupt_action") { mcpActions.Clear(); CancelMovement(); PlayAnimation(animationPolicy.Find(action), "External"); }
+                else { if (mcpActions.Count >= 100) throw new InvalidOperationException("待播放动作队列已满。"); mcpActions.Enqueue(action); }
+                return ControlTools.Text(new { action, started = name == "interrupt_action" || animationPhase == "External" && currentAction == action, queued = mcpActions.Count });
+            case "say": case "say_next":
+                var text = ControlTools.RequiredText(args, "text");
+                MarkAgentSpoken();
+                if (name == "say") ShowMcpSpeech(text); else mcpNextSpeech = text;
+                return ControlTools.Text(new { displayed = name == "say", pending = name == "say_next", text });
+            default: throw new ArgumentException("未知 MCP 工具。");
+        }
+    }
+    private bool PlayQueuedMcpAction()
+    {
+        if (mcpActions.Count == 0) return false;
+        CancelMovement();
+        PlayAnimation(animationPolicy.Find(mcpActions.Dequeue()), "External");
+        return true;
+    }
+    private void ShowMcpSpeech(string text)
+    {
+        MarkAgentSpoken();
+        InvalidateSpeechRequests(); EndGreetingNotice();
+        externalBubble = true;
+        bubbleIsModelReply = false;
+        bubbleUntil = DateTime.MaxValue;
+        speech.Show(text, true);
+    }
+    private bool ConsumeMcpSpeech()
+    {
+        if (mcpNextSpeech == null) return false;
+        var text = mcpNextSpeech; mcpNextSpeech = null;
+        nextSpeech = DateTime.UtcNow.Add(preferences.NextSpeechDelay(companionRandom));
+        ShowMcpSpeech(text);
+        return true;
+    }
+    private async Task<bool> ConfirmMcp(Window? owner, string title, string message, CancellationToken token = default, string accept = "了解并开启")
+    {
+        if (mcpConsentOpen) throw new InvalidOperationException("请先处理已打开的 MCP 提示窗口。");
+        mcpConsentOpen = true;
+        try
+        {
+            var dialog = new ModernWindow(title, title, message, 640, 460);
+            if (owner?.IsVisible == true) { dialog.Owner = owner; dialog.WindowStartupLocation = WindowStartupLocation.CenterOwner; }
+            bool accepted = false;
+            var finished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            dialog.Closed += (_, _) => finished.TrySetResult(accepted && !token.IsCancellationRequested);
+            mcpConsentWindow = dialog;
+            dialog.Actions.Children.Add(ModernUI.Button(accept, () => { accepted = true; dialog.Close(); }, true));
+            dialog.Actions.Children.Add(ModernUI.Button("取消", dialog.Close));
+            using var registration = token.Register(() => Dispatcher.BeginInvoke(() => { accepted = false; dialog.Close(); }));
+            dialog.Show();
+            return await finished.Task;
+        }
+        finally { mcpConsentWindow = null; mcpConsentOpen = false; }
+    }
 }

@@ -229,7 +229,6 @@ internal sealed class CompanionPreferences
                     s.McpChatEnabled = false;
                     s.McpWakeEnabled = false;
                     s.AgentDailySpeech = false;
-                    s.ExternalMcpEnabled = false;
 #endif
                     if (!s.McpEnabled) s.PuppetMode = false;
                     s.Scale = double.IsFinite(s.Scale) ? Math.Clamp(s.Scale, .5, 2.0) : 1;

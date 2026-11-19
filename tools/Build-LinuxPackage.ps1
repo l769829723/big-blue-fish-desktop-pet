@@ -22,10 +22,8 @@ New-Item -ItemType Directory -Path $output -ErrorAction SilentlyContinue | Out-N
 $payload = Join-Path $work 'payload'
 & $sdk publish "$root/code/BigBlueFish.Linux/BigBlueFish.Linux.csproj" -c Release -r linux-x64 --self-contained true "-p:CompanionEdition=$Edition" -p:RestoreLockedMode=true -o $payload --nologo
 if ($LASTEXITCODE -ne 0) { throw 'Linux 程序构建失败。' }
-if ($Edition -eq 'Standard') {
-    & $sdk publish "$root/code/BigBlueFish.Mcp/BigBlueFish.Mcp.csproj" -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -o $payload --nologo
-    if ($LASTEXITCODE -ne 0) { throw 'Linux MCP 组件构建失败。' }
-}
+& $sdk publish "$root/code/BigBlueFish.Mcp/BigBlueFish.Mcp.csproj" -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -o $payload --nologo
+if ($LASTEXITCODE -ne 0) { throw 'Linux MCP 组件构建失败。' }
 function LinuxPath([string]$path) {
     $result = & wsl -d $Distribution -- wslpath -a ($path.Replace('\','/'))
     if ($LASTEXITCODE -ne 0) { throw "无法访问 Linux 构建路径：$path" }

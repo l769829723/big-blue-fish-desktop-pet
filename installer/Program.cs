@@ -42,7 +42,7 @@ internal sealed class InstallerForm : ModernWindow
     private sealed record InstalledManifest(string Version, string InputMode, string[] Files, string Edition = "Standard");
 #if COMPANION_SAFE
     internal const string Edition = "Safe";
-    private const string InstallerTitle = "蓝色大肥鱼无MCP版安装程序";
+    private const string InstallerTitle = "蓝色大肥鱼无ACP版安装程序";
 #else
     internal const string Edition = "Standard";
     private const string InstallerTitle = "蓝色大肥鱼安装程序";

@@ -23,9 +23,9 @@ cp -a "$payload/." "$stage/opt/bigbluefish/"
 find "$stage/opt/bigbluefish" -type d -exec chmod 755 {} +
 find "$stage/opt/bigbluefish" -type f -exec chmod 644 {} +
 chmod 755 "$stage/opt/bigbluefish/BigBlueFish.Linux" "$stage/opt/bigbluefish/runtime/llama-server" "$stage/opt/bigbluefish/runtime/BigBlueFish.RunnerGuard" "$stage/opt/bigbluefish/runtime/BigBlueFish.PortalCapture"
-if [[ $edition == Standard ]]; then chmod 755 "$stage/opt/bigbluefish/BigBlueFish.Mcp"; fi
+chmod 755 "$stage/opt/bigbluefish/BigBlueFish.Mcp"
 package=bigbluefish; conflict=bigbluefish-safe; suffix=''; title=蓝色大肥鱼
-if [[ $edition == Safe ]]; then package=bigbluefish-safe; conflict=bigbluefish; suffix=-Safe; title=蓝色大肥鱼无MCP版; fi
+if [[ $edition == Safe ]]; then package=bigbluefish-safe; conflict=bigbluefish; suffix=-Safe; title=蓝色大肥鱼无ACP版; fi
 cat > "$stage/DEBIAN/control" <<EOF
 Package: $package
 Version: $version

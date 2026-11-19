@@ -34,9 +34,39 @@ try:
     wait(lambda: state().get('frames',0) > 10)
     check(app.poll() is None, 'actual self-contained Linux window running')
     if '--safe' in sys.argv:
-        check(not state()['McpAvailable'] and not state()['Puppet'], 'safe ignores enabled MCP and puppet preferences')
-        check(not (payload/'BigBlueFish.Mcp').exists() and not (payload/'BigBlueFish.Control.dll').exists(), 'safe package contains no MCP bridge or Control assembly')
-        check('BigBlueFish.Control' not in (payload/'BigBlueFish.Linux.deps.json').read_text(), 'safe executable has no MCP dependency')
+        check(not state()['McpAvailable'] and not state()['Puppet'], 'safe keeps the Agent connection and puppet off')
+        check((payload/'BigBlueFish.Mcp').exists() and (payload/'BigBlueFish.Control.dll').exists(), 'safe package bundles the restricted MCP bridge and control layer')
+        check('BigBlueFish.Control' in (payload/'BigBlueFish.Linux.deps.json').read_text(), 'safe executable links the shared control layer')
+        safe_pipe = wait(lambda: state().get('mcpPipe'), 20)
+        check(safe_pipe, 'safe serves the stable external pipe when the switch is on')
+        bridge = subprocess.Popen([str(payload / 'BigBlueFish.Mcp')], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+        safe_lines = queue.Queue()
+        threading.Thread(target=lambda: [safe_lines.put(json.loads(line)) for line in bridge.stdout], daemon=True).start()
+        safe_id = [0]
+        def safe_ask(method, params={}):
+            safe_id[0] += 1; number = safe_id[0]
+            bridge.stdin.write(json.dumps(dict(jsonrpc='2.0', id=number, method=method, params=params), ensure_ascii=False) + '\n'); bridge.stdin.flush()
+            while True:
+                value = safe_lines.get(timeout=30)
+                if value.get('id') == number: return value
+        safe_init = safe_ask('initialize', dict(protocolVersion='2025-11-25', capabilities={}, clientInfo=dict(name='safe external verification', version='1')))['result']
+        check('外部 MCP 接口' in safe_init['instructions'] and not safe_init['capabilities']['resources']['subscribe'], 'safe handshake offers speech and actions only')
+        bridge.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n'); bridge.stdin.flush()
+        safe_names = [item['name'] for item in safe_ask('tools/list')['result']['tools']]
+        check(safe_names == ['list_actions', 'play_action', 'interrupt_action', 'say', 'say_next'], 'safe external pipe exposes exactly five tools')
+        safe_text = '无ACP版的外部原文 + 动作'
+        safe_ask('tools/call', dict(name='say', arguments=dict(text=safe_text)))
+        wait(lambda: state()['text'] == safe_text, 5)
+        check(True, 'safe external say reaches the real Linux bubble')
+        safe_ask('tools/call', dict(name='interrupt_action', arguments=dict(action='点击回应-元气挥手')))
+        wait(lambda: state()['currentAction'] == '点击回应-元气挥手', 5)
+        check(True, 'safe external interrupt_action plays the requested clip')
+        denied = safe_ask('tools/call', dict(name='update_settings', arguments=dict(settings=dict(Scale=1.5))))
+        check(denied['result'].get('isError') is True, 'safe external client cannot change settings')
+        denied = safe_ask('tools/call', dict(name='capture_screen', arguments=dict()))
+        check(denied['result'].get('isError') is True, 'safe external client cannot capture the screen')
+        check(safe_ask('resources/list')['result']['resources'] == [], 'safe external client sees no interaction resources')
+        bridge.stdin.close(); bridge.wait(timeout=5)
         command('settings'); wait(lambda: state()['settingsOpen'])
         command('render-settings'); wait(lambda: (data/'settings.png').exists())
         command('close-settings'); wait(lambda: not state()['settingsOpen'])

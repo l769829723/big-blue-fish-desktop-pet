@@ -27,7 +27,7 @@ try:
  cmd('show');wait(lambda:not state().get('hidden') and state().get('frames')!=before);print('PASS resume advances actual frames',flush=True)
  cmd('settings');wait(lambda:state().get('settingsOpen'));cmd('close-settings');wait(lambda:not state().get('settingsOpen'));print('PASS settings lifecycle',flush=True)
  assert not (data/'test-error.txt').exists();
- if '--safe' in sys.argv:assert not s['McpAvailable'] and not (payload/'BigBlueFish.Control.dll').exists()
+ if '--safe' in sys.argv:assert not s['McpAvailable'] and (payload/'BigBlueFish.Control.dll').exists() and (payload/'BigBlueFish.Mcp').exists()
  cmd('exit');proc.wait(timeout=6);assert proc.returncode==0;print('PASS clean exit',flush=True)
 finally:
  if proc.poll() is None:proc.terminate();proc.wait(timeout=5)
