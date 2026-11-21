@@ -27,7 +27,7 @@ internal sealed record CompanionWindowImage(string DataUrl, int Width, int Heigh
 {
     internal void SaveJpeg(string path) => File.WriteAllBytes(path, Convert.FromBase64String(DataUrl[(DataUrl.IndexOf(',') + 1)..]));
 }
-internal static class CompanionNative
+internal static partial class CompanionNative
 {
     static readonly object gate = new();
     static readonly IntPtr display = XOpenDisplay(IntPtr.Zero);

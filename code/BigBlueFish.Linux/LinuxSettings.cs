@@ -105,6 +105,7 @@ internal sealed partial class LinuxPetWindow
             Title("桌宠与显示"); Slider("桌宠大小（%）", Preferences.Scale * 100, 50, 200, value => { Preferences.Scale = value / 100; Rescale(); Clamp(); }, 5);
             Slider("文字气泡大小（%）", Preferences.BubbleScale * 100, 50, 200, value => { Preferences.BubbleScale = value / 100; MoveBubble(); }, 5);
             Toggle("开机启动", StartupEnabled, SetStartup); Toggle("全屏时自动隐藏桌宠", Preferences.HideOnFullscreen, value => { Preferences.HideOnFullscreen = value; ApplySettings(); });
+            Toggle("空闲时自己遛弯、趴到窗口上沿", Preferences.RoamingEnabled, value => { Preferences.RoamingEnabled = value; if (!value) CancelRoamToGround(); ApplySettings(); });
             Select("气泡驻留时间", CompanionPreferences.BubbleDurationLabels, Preferences.BubbleDurationIndex, value => { Preferences.BubbleDurationIndex = value; ResetDwell(); });
         }
         void Model() {

@@ -283,6 +283,7 @@ public partial class MainWindow
             InstallCompanionHook();
             ScheduleHideFromTaskbar();
             await LoadCompanionAnimations();
+            StartRoaming();
             ScheduleHideFromTaskbar();
             if (preferences.CheckUpdatesOnStartup && !App.Args.Contains("--test-mode"))
             {
@@ -630,6 +631,7 @@ public partial class MainWindow
         }
         dragging = true;
         dragged = false;
+        CancelRoaming();
         CancelMovement();
         CompanionNative.GetCursorPos(out var p);
         dragStart = new Point(p.X, p.Y);
@@ -799,7 +801,7 @@ public partial class MainWindow
         {
             diagnosticAt = now.AddSeconds(1);
             var hwnd = new WindowInteropHelper(this).Handle;
-            File.WriteAllText("test-status.json", System.Text.Json.JsonSerializer.Serialize(new { ready = companionReady, visible = IsVisible, hiddenByUser, fullscreenHidden, fullscreen = CompanionNative.IsFullscreen(), onAC = CompanionNative.OnAC, runner = brain.RunnerPid, busy = brain.Busy, status = brain.Status, hwnd = hwnd.ToInt64(), foreground = CompanionNative.GetForegroundWindow().ToInt64(), startupForeground = startupForeground.ToInt64(), style = CompanionNative.GetStyle(hwnd, -20).ToInt64(), Left, Top, Width, Height, bubble = bubbleText.Text, bubbleVisible = bubble.Visibility == Visibility.Visible, loadingVisible = loadingIndicator.Visibility == Visibility.Visible, bubbleDurationIndex = preferences.BubbleDurationIndex, bubbleRemainingSeconds = bubbleUntil == DateTime.MaxValue ? -1 : Math.Max(0, (bubbleUntil - now).TotalSeconds), action = currentAction, animationPhase, animationFrames = videoPlayer?.Frames, animationSeconds = videoPlayer?.PositionSeconds, animationInterval = preferences.AnimationIntervalSeconds, workRecognitionEnabled = false }));
+            File.WriteAllText("test-status.json", System.Text.Json.JsonSerializer.Serialize(new { ready = companionReady, visible = IsVisible, hiddenByUser, fullscreenHidden, fullscreen = CompanionNative.IsFullscreen(), onAC = CompanionNative.OnAC, runner = brain.RunnerPid, busy = brain.Busy, status = brain.Status, hwnd = hwnd.ToInt64(), foreground = CompanionNative.GetForegroundWindow().ToInt64(), startupForeground = startupForeground.ToInt64(), style = CompanionNative.GetStyle(hwnd, -20).ToInt64(), Left, Top, Width, Height, bubble = bubbleText.Text, bubbleVisible = bubble.Visibility == Visibility.Visible, loadingVisible = loadingIndicator.Visibility == Visibility.Visible, bubbleDurationIndex = preferences.BubbleDurationIndex, bubbleRemainingSeconds = bubbleUntil == DateTime.MaxValue ? -1 : Math.Max(0, (bubbleUntil - now).TotalSeconds), action = currentAction, animationPhase, animationFrames = videoPlayer?.Frames, animationSeconds = videoPlayer?.PositionSeconds, animationInterval = preferences.AnimationIntervalSeconds, workRecognitionEnabled = false, roamingEnabled = preferences.RoamingEnabled, roamState = roaming?.State.ToString(), roamTrip = roaming?.Trip.ToString(), roamTargetTitle = roaming?.Target?.Title, roamTargetRect = roaming?.Target is { } roamSurface ? new { roamSurface.Bounds.X, roamSurface.Bounds.Y, roamSurface.Bounds.Width, roamSurface.Bounds.Height } : null, roamBody = roaming is { } roamBodyState ? new { roamBodyState.Body.X, roamBodyState.Body.Y, roamBodyState.Body.Width, roamBodyState.Body.Height } : null, roamSurfaces = roamSurfaces.Count }));
             if (File.Exists("test-command.txt"))
             {
                 var command = File.ReadAllText("test-command.txt").Trim();
@@ -907,6 +909,7 @@ public partial class MainWindow
 
         UpdateCompanionVisibility();
         TickAgent(now);
+        TickRoaming(now);
         if (exitAnimation || hiddenByUser || fullscreenHidden || !companionReady || dragging)
             return;
         if (bubble.Visibility == Visibility.Visible && now > bubbleUntil)

@@ -45,6 +45,11 @@ internal sealed partial class LinuxPetWindow : Window
     bool lastPresentedMirror;
     CompanionAnimationRule? moveRule;
     bool moveMirrored;
+    CompanionRoaming? roam;
+    CompanionRoamingAction? roamAction;
+    IReadOnlyList<CompanionSurface> roamSurfaces = Array.Empty<CompanionSurface>();
+    DateTime nextRoamScan = DateTime.MinValue;
+    bool suspendBubbleLayout;
     Window? settings;
     bool modelInstalling;
     bool agentWeatherPending;
@@ -68,8 +73,8 @@ internal sealed partial class LinuxPetWindow : Window
         Title = "蓝色大肥鱼"; WindowDecorations = WindowDecorations.None; ShowInTaskbar = false; ShowActivated = false;
         Topmost = true; CanResize = false; Background = Brushes.Transparent; TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
         Content = petCanvas;
-        player = new(sprite); player.FramePresented += MoveWithAnimation;
-        PositionChanged += (_, _) => MoveBubble();
+        player = new(sprite); player.FramePresented += MoveWithAnimation; player.FramePresented += AdvanceRoamingFrame;
+        PositionChanged += (_, _) => { if (!suspendBubbleLayout) MoveBubble(); };
         player.PixelsPresented += (pixels,width,height,mirror) => {
             lastPresentedPixels = pixels; lastPresentedWidth = width; lastPresentedHeight = height; lastPresentedMirror = mirror; UpdateInputShape();
         };
@@ -86,6 +91,7 @@ internal sealed partial class LinuxPetWindow : Window
         Rescale();
         var screen = Screens.Primary?.WorkingArea ?? new PixelRect(0, 0, 1280, 720);
         Position = new((int)(Preferences.Left ?? screen.Right - Width * DesktopScaling), (int)(Preferences.Top ?? screen.Bottom - Height * DesktopScaling)); Clamp();
+        roam = new CompanionRoaming(random); roam.Sync(Body()); roam.ResetSchedule(DateTime.UtcNow);
         Opened += async (_, _) => {
             if (Puppet) Play(policy.Find("待机呼吸休闲"), "PuppetIdle");
             else { Play(policy.Find("女仆屈膝礼仪"), "Startup"); Welcome(); }
@@ -98,7 +104,7 @@ internal sealed partial class LinuxPetWindow : Window
             if (point.Properties.IsRightButtonPressed) { PublishInteraction("click", new { button = "right", Position.X, Position.Y }); OpenMenu(); e.Handled = true; return; }
             if (!point.Properties.IsLeftButtonPressed) return;
             if (e.ClickCount == 2 && TryOpenMcpInput()) { lastClickAt = 0; PublishInteraction("click", new { button = "left", count = 2, Position.X, Position.Y }); e.Handled = true; return; }
-            dragging = true; dragged = false; moveRule = null; windowOrigin = Position;
+            dragging = true; dragged = false; moveRule = null; CancelRoam(); windowOrigin = Position;
             var screenPoint = this.PointToScreen(point.Position); dragOrigin = screenPoint;
             e.Pointer.Capture(this); e.Handled = true;
         };
@@ -172,6 +178,7 @@ internal sealed partial class LinuxPetWindow : Window
         DiagnosticLog.Write(DiagnosticEvent.AnimationCompleted, kind: phase, action: currentAction);
         if (closed) return;
         if (phase == "Exit") { CloseImmediately(); return; }
+        if (phase == "Roam") { FinishRoam(); return; }
         if (!dragging && !hidden && !fullscreenHidden && PlayQueued()) return;
         if (Puppet) { Idle(); return; }
         if (phase == "Drag") return;
@@ -191,6 +198,96 @@ internal sealed partial class LinuxPetWindow : Window
         Position = new(Position.X - (int)(70 * Preferences.Scale * DesktopScaling), Position.Y); Clamp(); moveEnd = Position.X;
         if (Math.Abs(moveEnd - moveStart) < 15 * DesktopScaling) { Position = new((int)(moveStart + 70 * Preferences.Scale * DesktopScaling), Position.Y); Clamp(); moveEnd = Position.X; }
         Position = moveOrigin; moveMirrored = moveEnd > moveStart; Play(rule, "Outbound", moveMirrored);
+    }
+    CompanionRect Body()
+    {
+        double s = DesktopScaling;
+        return new(Position.X + SpriteSize * 208 / 360 * s,
+            Position.Y + (bubbleReservedHeight + SpriteSize * 58 / 360) * s,
+            SpriteSize * 220 / 360 * s, SpriteSize * 278 / 360 * s);
+    }
+    CompanionRect WorkArea()
+    {
+        var area = (Screens.ScreenFromWindow(this) ?? Screens.Primary)?.WorkingArea ?? new PixelRect(0, 0, 1280, 720);
+        return new CompanionRect(area.X, area.Y, area.Width, area.Height);
+    }
+    void PlaceBody(CompanionRect body)
+    {
+        double s = DesktopScaling;
+        Position = new PixelPoint((int)Math.Round(body.X - SpriteSize * 208 / 360 * s),
+            (int)Math.Round(body.Y - (bubbleReservedHeight + SpriteSize * 58 / 360) * s));
+    }
+    bool RoamingAllowed() => Preferences.RoamingEnabled && !CompanionNative.Wayland && !closed && phase != "Exit"
+        && !hidden && !fullscreenHidden && !dragging && settings == null && !Puppet && !modelInstalling
+        // A cancelled trip leaves its clip playing until it ends; that parked clip
+        // must not block the next trip.
+        && (roam?.IsRoaming == true || roamAction == null && phase is "Idle" or "BetweenMoves" or "Roam");
+    void TickRoaming(DateTime now)
+    {
+        if (roam == null) return;
+        if (!RoamingAllowed()) { CancelRoam(); return; }
+        // Window enumeration costs a round trip per window, so idle time only pays
+        // for it when the next trip is actually due.
+        if (now >= nextRoamScan && (roam.State != CompanionRoamState.Idle || now >= roam.NextRoamAt))
+        {
+            nextRoamScan = now.AddMilliseconds(200);
+            roamSurfaces = CompanionNative.Surfaces(TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
+        }
+        roam.Sync(Body());
+        if (roamAction != null && !roam.IsRoaming) { roamAction = null; suspendBubbleLayout = false; }
+        roam.Tick(now, WorkArea(), roamSurfaces, true, CompanionNative.IdleSeconds);
+        if (roamAction != null) return;
+        if (roam.TakeAction() is { } action) PlayRoamAction(action);
+        else if (roam.IsRoaming) PlaceBody(roam.Body);
+    }
+    void CancelRoam()
+    {
+        if (roamAction == null && roam is not { IsRoaming: true }) return;
+        roamAction = null; roam?.Cancel(); suspendBubbleLayout = false;
+    }
+    // Switching roaming off mid-perch must not leave her floating in the air with
+    // no trip left to bring her down.
+    void CancelRoamToGround()
+    {
+        CancelRoam();
+        if (roam == null || !roam.MoveToGround()) return;
+        PlaceBody(roam.Body); Clamp(); roam.Sync(Body()); Save();
+    }
+    void PlayRoamAction(CompanionRoamingAction action)
+    {
+        if (closed) return;
+        var rule = policy.Find(action.Id);
+        roamAction = action;
+        if (phase == "Startup") EndWelcome();
+        DiagnosticLog.Write(DiagnosticEvent.AnimationStarted, kind: "Roam", action: rule.Id);
+        currentAction = rule.Id; phase = "Roam";
+        // The layered window moves every frame; the bubble is anchored inside the
+        // window, so only its own size changes need a layout pass.
+        suspendBubbleLayout = true;
+        player.Play(Path.Combine(AppContext.BaseDirectory, "assets/fish", rule.File), action.Mirror, Finished,
+            0, action.EndSeconds, action.PlaybackRate);
+    }
+    void AdvanceRoamingFrame(double seconds)
+    {
+        if (roamAction == null || roam == null) return;
+        roam.Advance(seconds);
+        PlaceBody(roam.Body);
+    }
+    void FinishRoam()
+    {
+        var action = roamAction; roamAction = null;
+        if (roam == null) { Idle(); return; }
+        roam.ClipFinished(DateTime.UtcNow, action?.Token ?? 0);
+        // Hand over to the next clip before snapping the window to the work area:
+        // an action queued mid-clip (for example a settling fall) must keep its
+        // planned start point instead of jumping to the floor first.
+        if (roam.TakeAction() is { } next) { PlayRoamAction(next); return; }
+        suspendBubbleLayout = false;
+        Clamp();
+        roam.Sync(Body());
+        if (roam.IsRoaming) { PlaceBody(roam.Body); return; }
+        Save();
+        Idle();
     }
     void MoveWithAnimation(double seconds)
     {
@@ -265,8 +362,10 @@ internal sealed partial class LinuxPetWindow : Window
                 petCanvas.Width = Width; petCanvas.Height = Height;
                 Canvas.SetTop(sprite, bubbleReservedHeight);
                 Canvas.SetTop(loading, bubbleReservedHeight + SpriteSize * 50 / 360);
-                Position = new(Position.X, Position.Y + (int)Math.Round((oldReservedHeight - bubbleReservedHeight) * DesktopScaling));
-                Clamp();
+                // Move the window in one step: reading Position back after a set can
+                // still return the previous value on X11, which would swallow the shift.
+                Position = Clamp(new PixelPoint(Position.X,
+                    Position.Y + (int)Math.Round((oldReservedHeight - bubbleReservedHeight) * DesktopScaling)));
             }
             UpdateInputShape();
         } finally { updatingBubbleLayout = false; }
@@ -300,6 +399,7 @@ internal sealed partial class LinuxPetWindow : Window
         else if (!full && fullscreenHidden) { fullscreenHidden = false; if (!hidden) { Show(); Clamp(); } }
         player.Paused = hidden || fullscreenHidden;
         TickAgent(now);
+        TickRoaming(now);
         if (hidden || fullscreenHidden) return;
         if (typing)
         {

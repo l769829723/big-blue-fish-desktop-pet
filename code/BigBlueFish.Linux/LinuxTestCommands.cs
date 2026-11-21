@@ -14,7 +14,11 @@ internal sealed partial class LinuxPetWindow
         if (!App.Args.Contains("--test-mode")) return;
         if (DateTime.UtcNow >= nextTestStatus) {
             nextTestStatus = DateTime.UtcNow.AddSeconds(1);
-            File.WriteAllText("test-status.json", JsonSerializer.Serialize(new { version = typeof(LinuxPetWindow).Assembly.GetName().Version!.ToString(3), currentAction, phase, frames = player.Frames, animationSeconds=player.PositionSeconds, animationBackend=player.Backend, player.LastReadMs, player.LastUiMs, player.LastCopyMs, player.LastShapeMs, text = bubbleText.Text, bubbleVisible = bubbleFrame.IsVisible, bubbleInPetWindow = ReferenceEquals(bubbleFrame.Parent, petCanvas), loadingInPetWindow = ReferenceEquals(loading.Parent, petCanvas), topmost = Topmost, bubbleReservedHeight, Puppet, McpAvailable, visible = IsVisible, hidden, fullscreenHidden, modelPid = brain.RunnerPid, modelBusy = brain.Busy, modelStatus = brain.Status, generating, settingsOpen = settings != null, contextMenuOpen = ContextMenu?.IsOpen == true, Position.X, Position.Y, mcpPipe = TestPipe }));
+            File.WriteAllText("test-status.json", JsonSerializer.Serialize(new { version = typeof(LinuxPetWindow).Assembly.GetName().Version!.ToString(3), currentAction, phase, frames = player.Frames, animationSeconds=player.PositionSeconds, animationBackend=player.Backend, player.LastReadMs, player.LastUiMs, player.LastCopyMs, player.LastShapeMs, text = bubbleText.Text, bubbleVisible = bubbleFrame.IsVisible, bubbleInPetWindow = ReferenceEquals(bubbleFrame.Parent, petCanvas), loadingInPetWindow = ReferenceEquals(loading.Parent, petCanvas), topmost = Topmost, bubbleReservedHeight, Puppet, McpAvailable, visible = IsVisible, hidden, fullscreenHidden, modelPid = brain.RunnerPid, modelBusy = brain.Busy, modelStatus = brain.Status, generating, settingsOpen = settings != null, contextMenuOpen = ContextMenu?.IsOpen == true, Position.X, Position.Y, mcpPipe = TestPipe,
+                roamingEnabled = Preferences.RoamingEnabled, roamState = roam?.State.ToString(), roamTrip = roam?.Trip.ToString(),
+                roamTarget = roam?.Target?.Title, roamTargetTop = roam?.Target?.Bounds.Top, roamBodyBottom = roam?.Body.Bottom,
+                roamBodyCenterX = roam?.Body.CenterX, roamFeetX = roam?.Feet.X, roamFeetY = roam?.Feet.Y,
+                roamWork = WorkArea(), roamScale = DesktopScaling }));
         }
         if (!File.Exists("test-command.txt")) return;
         string command = File.ReadAllText("test-command.txt").Trim(); File.Delete("test-command.txt");
@@ -38,6 +42,11 @@ internal sealed partial class LinuxPetWindow
 #if !COMPANION_SAFE
                 case "render-input": if (mcpInput != null) RenderControl(mcpInput, "input.png"); break;
 #endif
+                case "roam-perch": ForceRoam(0, false); break;
+                case var perch when perch.StartsWith("roam-perch:"): ForceRoam(ParseRoamHandle(perch[11..]), false); break;
+                case "roam-push": ForceRoam(0, true); break;
+                case var push when push.StartsWith("roam-push:"): ForceRoam(ParseRoamHandle(push[10..]), true); break;
+                case "roam-cancel": CancelRoam(); break;
                 default: if (command.StartsWith("bubble ")) ShowText(command[7..], true); break;
             }
         } catch (Exception error) { File.WriteAllText("test-error.txt", error.ToString()); }
@@ -130,6 +139,24 @@ internal sealed partial class LinuxPetWindow
             Check(true, "speech-setting slider remains interactive");
         }
         File.WriteAllText("test-regression.json", JsonSerializer.Serialize(new { ok = true, checks, firstRole = firstRole.Name, secondRole = secondRole.Name }));
+    }
+    static long ParseRoamHandle(string value)
+    {
+        // xdotool prints decimal window ids; accept hex too so manual runs are easy.
+        return value.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+            ? long.Parse(value[2..], System.Globalization.NumberStyles.HexNumber)
+            : long.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
+    }
+    void ForceRoam(long handle, bool push)
+    {
+        if (roam == null) throw new InvalidOperationException("Roaming engine missing.");
+        roamSurfaces = CompanionNative.Surfaces(TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
+        roam.Sync(Body());
+        nint? only = handle == 0 ? null : (nint)handle;
+        bool started = push
+            ? roam.TryStartPush(DateTime.UtcNow, WorkArea(), roamSurfaces, only)
+            : roam.TryStartPerch(DateTime.UtcNow, WorkArea(), roamSurfaces, only);
+        if (!started) File.WriteAllText("test-error.txt", "Roam target rejected: " + handle);
     }
     static void RenderControl(Avalonia.Controls.Control control, string path)
     {

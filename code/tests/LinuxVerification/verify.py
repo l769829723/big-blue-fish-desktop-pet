@@ -26,10 +26,11 @@ def command(value):
     temporary=data/'test-command.txt.tmp';temporary.write_text(value);temporary.replace(data/'test-command.txt')
 for name in ['test-status.json','test-error.txt','test-command.txt']:
     (data / name).unlink(missing_ok=True)
-(data / 'preferences.json').write_text(json.dumps(dict(ModelEnabled=False,PublicInfo=False,CheckUpdatesOnStartup=False,McpEnabled=True,ExternalMcpEnabled=True,PuppetMode=True)))
+(data / 'preferences.json').write_text(json.dumps(dict(ModelEnabled=False,PublicInfo=False,CheckUpdatesOnStartup=False,McpEnabled=True,ExternalMcpEnabled=True,PuppetMode=True,RoamingEnabled=False)))
 log = (data / 'app.log').open('w')
 app = subprocess.Popen([str(payload / 'BigBlueFish.Linux'), '--test-mode'], env=env, stdout=log, stderr=log)
 bridge = fixture = None
+roam_fixtures = []
 try:
     wait(lambda: state().get('frames',0) > 10)
     check(app.poll() is None, 'actual self-contained Linux window running')
@@ -224,6 +225,69 @@ try:
     content('update_settings',settings={'PuppetMode':False,'BubbleScale':1.2})
     wait(lambda:not state()['Puppet'])
     check(json.loads((data/'preferences.json').read_text())['BubbleScale']==1.2,'settings saved and puppet disabled explicitly')
+    # Roaming: climb a real X11 window, follow it, fall when it vanishes, and push
+    # it without ever moving it. Enabled only here so earlier checks stay still.
+    def geometry(handle):
+        # xdotool reports frame-adjusted values on reparenting window managers, so
+        # read the client's absolute rectangle straight from xwininfo.
+        text=subprocess.check_output(['xwininfo','-id',str(handle)],env=env,text=True)
+        def field(name):
+            for line in text.splitlines():
+                if line.strip().startswith(name+':') and ':' in line:
+                    return int(line.split(':',1)[1].strip())
+            raise ValueError(name)
+        return dict(X=field('Absolute upper-left X'),Y=field('Absolute upper-left Y'),
+            WIDTH=field('Width'),HEIGHT=field('Height'))
+    def frame_top(handle):
+        output=subprocess.check_output(['xprop','-id',handle,'_NET_FRAME_EXTENTS'],env=env,text=True)
+        if '=' in output:
+            values=[int(value) for value in output.split('=')[1].split(',') if value.strip().isdigit()]
+            if len(values)==4: return values[2]
+        return 0
+    def spawn_roam_fixture(title,left,top,width=360,height=300):
+        process=subprocess.Popen(['/usr/bin/ffplay','-loglevel','error','-window_title',title,'-f','lavfi','-i',
+            f"color=c=white:s={width}x{height}:r=1,drawtext=text='Roam Target':fontcolor=black:fontsize=28:x=24:y=40",
+            '-left',str(left),'-top',str(top)],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        roam_fixtures.append(process)
+        time.sleep(2)
+        handle=subprocess.check_output(['xdotool','search','--name','^'+title+'$'],env=env,text=True).splitlines()[0]
+        subprocess.run(['xdotool','windowmove',handle,str(left),str(top)],check=True,env=env);time.sleep(.6)
+        return handle
+    content('update_settings',settings={'RoamingEnabled':True,'Left':410,'Top':440})
+    wait(lambda:abs(state()['X']-410)<3 and abs(state()['Y']-440)<3)
+    perch_window=spawn_roam_fixture('BigBlueFish Roam',600,380)
+    command('roam-perch:'+perch_window)
+    perch=wait(lambda:(lambda s: s if s['roamState']=='Perch' else None)(state()),90)
+    check(perch['roamTarget']=='BigBlueFish Roam','real X11 window is recognised as a perch target')
+    start_geometry=geometry(perch_window)
+    check(abs(perch['roamFeetY']-(start_geometry['Y']-frame_top(perch_window)+2))<3,'feet rest on the real window top edge')
+    check(start_geometry['X']-1<=perch['roamFeetX']<=start_geometry['X']+start_geometry['WIDTH']+1,'perch stays within the window width')
+    subprocess.run(['xdotool','windowmove',perch_window,'680','330'],check=True,env=env);time.sleep(.4)
+    moved_geometry=geometry(perch_window)
+    dx=moved_geometry['X']-start_geometry['X']
+    followed=wait(lambda:(lambda s: s if s['roamState']=='Perch' and abs(s['roamFeetY']-(moved_geometry['Y']-frame_top(perch_window)+2))<3 else None)(state()),10)
+    check(abs(dx)<1 or abs((followed['roamFeetX']-perch['roamFeetX'])-dx)<6,'perched pet follows the real window instead of staying behind')
+    check(followed['roamTarget']=='BigBlueFish Roam','perch keeps its target snapshot current')
+    roam_fixtures[0].terminate();roam_fixtures[0].wait(timeout=5)
+    landed=wait(lambda:(lambda s: s if s['roamState']=='Idle' and s['roamTarget'] is None and s['roamFeetY']>perch['roamFeetY']+100 else None)(state()),20)
+    check(True,'a vanishing window drops the pet back to the floor')
+    floor=landed['roamFeetY']
+    content('update_settings',settings={'Left':410,'Top':int(floor-261)})
+    wait(lambda:abs(state()['X']-410)<3)
+    push_window=spawn_roam_fixture('BigBlueFish Push',600,int(floor-300))
+    # The pet never pushes the window the user is working in, so hand focus to a
+    # small window that is neither a perch nor a push target before asking for one.
+    focus_window=spawn_roam_fixture('BigBlueFish Focus',120,40,width=200,height=120)
+    subprocess.run(['xdotool','windowactivate',focus_window],check=True,env=env);time.sleep(.6)
+    check(subprocess.check_output(['xdotool','getactivewindow'],env=env,text=True).strip()==str(int(focus_window)),
+        'a non-target window holds focus before the cosmetic push')
+    command('roam-push:'+push_window)
+    wait(lambda:state()['roamState']=='Push',90)
+    push_before=geometry(push_window)
+    wait(lambda:state()['roamState']=='Idle',60)
+    check(geometry(push_window)==push_before,'cosmetic push never moves the target window')
+    content('update_settings',settings={'RoamingEnabled':False})
+    check(not (data/'test-error.txt').exists(),'roaming produced no application error')
     # Keep the physical drag target outside the centered consent window and fixture.
     # An obscured point belongs to the window covering it, not the pet beneath it.
     content('update_settings',settings={'Left':900,'Top':450})
@@ -259,6 +323,11 @@ try:
 finally:
     if bridge: bridge.terminate(); bridge.wait(timeout=5)
     if fixture: fixture.terminate(); fixture.wait(timeout=5)
+    for roam_fixture in roam_fixtures:
+        if roam_fixture.poll() is None:
+            roam_fixture.terminate()
+            try: roam_fixture.wait(timeout=5)
+            except subprocess.TimeoutExpired: roam_fixture.kill()
     if app.poll() is None:
         command('exit')
         try: app.wait(timeout=5)

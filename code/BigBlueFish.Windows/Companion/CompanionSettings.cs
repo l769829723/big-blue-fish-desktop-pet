@@ -210,6 +210,11 @@ public partial class MainWindow
             preferences.HideOnFullscreen = v;
             UpdateCompanionVisibility();
         });
+        Toggle("空闲时自己遛弯、趴到窗口上沿", preferences.RoamingEnabled, v =>
+        {
+            preferences.RoamingEnabled = v;
+            if (!v) CancelRoamingToGround();
+        });
         Toggle("开机自动启动", StartupEnabled(), SetCompanionStartup);
         Toggle("启动时检查更新", preferences.CheckUpdatesOnStartup, v => preferences.CheckUpdatesOnStartup = v);
         p = pages[1];

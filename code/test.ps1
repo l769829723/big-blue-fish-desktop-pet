@@ -18,10 +18,14 @@ try {
         if($LASTEXITCODE -ne 0){throw 'Runner故障恢复或提示词验证失败'}
         & $sdk run --project "$PSScriptRoot/tests/AnimationVerification/AnimationVerification.csproj" -c Release -- "$PSScriptRoot/BigBlueFish.Windows/assets/fish"
         if($LASTEXITCODE -ne 0){throw '动画规则验证失败'}
+        & $sdk run --project "$PSScriptRoot/tests/RoamingVerification/RoamingVerification.csproj" -c Release
+        if($LASTEXITCODE -ne 0){throw '遛弯逻辑验证失败'}
         & $sdk run --project "$PSScriptRoot/tests/ForegroundVerification/ForegroundVerification.csproj" -c Release -p:Platform=x64 "-p:CompanionInputMode=$InputMode"
         if($LASTEXITCODE -ne 0){throw '前台窗口验证失败'}
         & $sdk run --project "$PSScriptRoot/tests/AnimationUiVerification/AnimationUiVerification.csproj" -c Release -p:Platform=x64 "-p:CompanionInputMode=$InputMode" -- $sandbox
         if($LASTEXITCODE -ne 0){throw '动画与设置实窗验证失败'}
+        & $sdk run --project "$PSScriptRoot/tests/AnimationUiVerification/AnimationUiVerification.csproj" -c Release -p:Platform=x64 "-p:CompanionInputMode=$InputMode" -- $sandbox --roaming
+        if($LASTEXITCODE -ne 0){throw '遛弯实窗验证失败'}
         & $sdk run --project "$PSScriptRoot/tests/InstallerVerification/InstallerVerification.csproj" -c Release -p:Platform=x64 "-p:CompanionInputMode=$InputMode" -- --update-notes (Join-Path $sandbox "update-notes-$InputMode")
         if($LASTEXITCODE -ne 0){throw '更新页 Markdown 验证失败'}
 } finally {Pop-Location}

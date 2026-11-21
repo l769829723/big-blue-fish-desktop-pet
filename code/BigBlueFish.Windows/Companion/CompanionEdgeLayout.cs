@@ -15,6 +15,9 @@ public static class CompanionEdgeLayout
 {
     private static int bubbleVisible;
     private static long bubbleHandle;
+    // Roaming moves the layered window every frame. Re-measuring the bubble on each
+    // LocationChanged would dominate the trip, so movement suspends only that path.
+    internal static bool SuspendLayout;
     internal static bool HasVisibleBubble => System.Threading.Volatile.Read(ref bubbleVisible) != 0;
     internal static IntPtr BubbleWindowHandle => new(System.Threading.Interlocked.Read(ref bubbleHandle));
     private sealed class Follow
@@ -64,6 +67,7 @@ public static class CompanionEdgeLayout
         private void Changed(object? s, EventArgs e)
         {
             System.Threading.Volatile.Write(ref bubbleVisible, bubble.Visibility == Visibility.Visible ? 1 : 0);
+            if (SuspendLayout && ReferenceEquals(s, pet)) return;
             Update();
             QueueUpdate();
         }

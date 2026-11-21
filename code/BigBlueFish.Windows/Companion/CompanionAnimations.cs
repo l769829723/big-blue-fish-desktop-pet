@@ -139,6 +139,7 @@ public partial class MainWindow
         DiagnosticLog.Write(DiagnosticEvent.AnimationCompleted, kind: animationPhase, action: currentAction);
         if (companionClosed) return;
         if (exitAnimation) { exitReady = true; base.Close(); return; }
+        if (animationPhase == "Roam") { FinishRoamClip(); return; }
         if (!dragging && !hiddenByUser && !fullscreenHidden && PlayQueuedMcpAction()) return;
         if (PuppetActive) { PlayAnimation(animationPolicy.Find("待机呼吸休闲"), "PuppetIdle"); return; }
         if (animationPhase == "Drag") return; // Hold the final suspended pose until mouse release.
@@ -210,6 +211,7 @@ public partial class MainWindow
     private void ClickAnimation()
     {
         if (PuppetActive || !companionReady || exitAnimation) return;
+        CancelRoaming();
         CancelMovement();
         PlayAnimation(animationPolicy.Choose("Click", AnimationContext(), companionRandom), "Click");
     }

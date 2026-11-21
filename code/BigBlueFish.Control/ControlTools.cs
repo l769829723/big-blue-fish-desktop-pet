@@ -27,7 +27,7 @@ public static class ControlTools
         new { type = "text", text = JsonSerializer.Serialize(metadata) },
         new { type = "image", mimeType = dataUrl[5..dataUrl.IndexOf(';')], data = dataUrl[(dataUrl.IndexOf(',') + 1)..] } } };
     public static readonly string[] SettingNames = ["ModelEnabled", "GpuEnabled", "PublicInfo", "ForegroundEnabled", "StopModelOnBattery",
-        "HideOnFullscreen", "CheckUpdatesOnStartup", "WeatherRegionCode", "Scale", "BubbleScale", "SpeechMinMinutes", "SpeechInterval", "Chatty", "SpeakerRole",
+        "HideOnFullscreen", "RoamingEnabled", "CheckUpdatesOnStartup", "WeatherRegionCode", "Scale", "BubbleScale", "SpeechMinMinutes", "SpeechInterval", "Chatty", "SpeakerRole",
         "BubbleDurationIndex", "AnimationIntervalSeconds", "BreakfastHour", "LunchHour", "DinnerHour", "Left", "Top", "LastBrushDate", "StartupEnabled", "PuppetMode", "AgentDailySpeech", "AgentRespondToClick", "AgentRespondToDrag"];
     private const string SettingsInput = """
         {"settings":{"type":"object","additionalProperties":false,"description":"按需提供字段；省略的字段保留。字段名区分大小写。AgentEnabled 只读。成功后读取实际值；位置可能因工作区限制调整。","properties":{
@@ -39,6 +39,7 @@ public static class ControlTools
           "ForegroundEnabled":{"type":"boolean","description":"内置模型是否读屏；不是 MCP 截图的权限开关。"},
           "StopModelOnBattery":{"type":"boolean","description":"离电时暂停并卸载内置模型；不限制外部文字。"},
           "HideOnFullscreen":{"type":"boolean","description":"外部全屏时隐藏桌宠；不限制 MCP 截图。"},
+          "RoamingEnabled":{"type":"boolean","description":"允许桌宠在空闲时自己散步、爬到真实窗口上沿趴着；推窗只是表演动作，不会移动其他程序窗口。Wayland 桌面不支持。"},
           "CheckUpdatesOnStartup":{"type":"boolean","description":"启动时检查更新。"},
           "WeatherRegionCode":{"type":"string","pattern":"^([0-9]{6}|[A-Z]{2}-[0-9]+)$","description":"内置地区表中存在的叶级地点代码：中国为6位区县代码如340104，美国为US-加5位县FIPS如US-06037，其他国家为国家代码-GeoNames城市ID如JP-1850147；不是城市名、省级、州级或一级行政区代码。"},
           "Scale":{"type":"number","minimum":0.5,"maximum":2,"description":"角色大小倍率；1为100%。"},

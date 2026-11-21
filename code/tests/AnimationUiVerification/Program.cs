@@ -224,6 +224,73 @@ internal static partial class Program
         Check(GetForegroundWindow()==Handle(other),"queued activation ignores settings already closed");
         Console.WriteLine($"Settings focus: {checks} real WPF/Win32 checks passed.");
     }
+    static void VerifyRoamingGeometry(MainWindow w)
+    {
+        var work=CompanionEdgeLayout.WorkArea(w);
+        var engineWork=CompanionWindowsSurfaces.WorkArea(w);
+        Check(Math.Abs(engineWork.X-work.X)<.6&&Math.Abs(engineWork.Y-work.Y)<.6
+            &&Math.Abs(engineWork.Width-work.Width)<.6&&Math.Abs(engineWork.Height-work.Height)<.6,
+            "surface provider reports the same work area as the edge layout");
+        var body=CompanionWindowsSurfaces.VisibleBody(w);
+        Check(body.Width>0&&body.Height>0,"visible body has a usable size");
+        var moved=body.Offset(-60,0);
+        CompanionWindowsSurfaces.PlaceBody(w,moved);
+        var roundTrip=CompanionWindowsSurfaces.VisibleBody(w);
+        Check(Math.Abs(roundTrip.X-moved.X)<.6&&Math.Abs(roundTrip.Y-moved.Y)<.6
+            &&Math.Abs(roundTrip.Width-moved.Width)<.6&&Math.Abs(roundTrip.Height-moved.Height)<.6,
+            "window position and visible body round-trip in device independent pixels");
+        CompanionWindowsSurfaces.PlaceBody(w,body);
+
+        // A bubble must not drag the character off her feet, because the roaming
+        // engine treats the visible body as the anchor.
+        var beforeBubble=CompanionWindowsSurfaces.VisibleBody(w);
+        ((Border)Read(w,"bubble")).Visibility=Visibility.Visible;
+        ((TextBlock)Read(w,"bubbleText")).Text="遛弯时出现的气泡";
+        CompanionEdgeLayout.Refresh(w);Pump(60);
+        var afterBubble=CompanionWindowsSurfaces.VisibleBody(w);
+        Check(Math.Abs(afterBubble.X-beforeBubble.X)<.6&&Math.Abs(afterBubble.Y-beforeBubble.Y)<.6,
+            "bubble layout keeps the visible body anchored");
+        ((Border)Read(w,"bubble")).Visibility=Visibility.Collapsed;
+        Invoke(w,"ClampCompanion");Pump(40);
+
+        // Per-frame window movement must not re-measure the bubble every frame.
+        CompanionEdgeLayout.SuspendLayout=true;
+        double left=w.Left,top=w.Top;
+        w.Left=left+37;w.Top=top-21;Pump(50);
+        Check(Math.Abs(w.Left-(left+37))<.6&&Math.Abs(w.Top-(top-21))<.6,"suspended layout still moves the layered window");
+        CompanionEdgeLayout.SuspendLayout=false;
+        w.Left=left;w.Top=top;CompanionEdgeLayout.Refresh(w);Pump(40);
+
+        using var fixture=new CloseWindow(new Window{Title="大肥鱼遛弯自窗口样例",Width=420,Height=300,ShowInTaskbar=true,
+            Left=work.Left+120,Top=work.Top+80,Content=new TextBlock{Text="同一进程的普通窗口",Margin=new Thickness(24)}});
+        fixture.Window.Show();Pump(80);
+        var surfaces=CompanionWindowsSurfaces.Enumerate(w,Handle(w));
+        Check(surfaces.All(surface=>surface.Handle!=Handle(w)),"the pet window is never its own perch");
+        Check(surfaces.All(surface=>surface.Title!="大肥鱼遛弯自窗口样例"),"same-process windows are excluded from perching");
+        Check(surfaces.All(surface=>surface.Bounds.Right>engineWork.Left&&surface.Bounds.Left<engineWork.Right
+            &&surface.Bounds.Bottom>engineWork.Top&&surface.Bounds.Top<engineWork.Bottom),"every reported surface intersects the work area");
+
+        var roam=(CompanionRoaming)Read(w,"roaming");
+        roam.Sync(CompanionWindowsSurfaces.VisibleBody(w));
+        Check(roam.TryStartStroll(DateTime.UtcNow,engineWork,surfaces),"a stroll can start from the real desktop geometry");
+        var now=DateTime.UtcNow;int legs=0;
+        while(roam.IsRoaming&&legs<12)
+        {
+            roam.Tick(now,engineWork,surfaces,true,30);
+            if(roam.TakeAction() is not { } action) break;
+            double end=action.EndSeconds??10;
+            for(double t=0;t<=end;t+=.1) roam.Advance(t);
+            roam.Advance(end);
+            roam.ClipFinished(now,action.Token);
+            Check(roam.Body.Left>=engineWork.Left-.6&&roam.Body.Right<=engineWork.Right+.6
+                &&roam.Body.Top>=engineWork.Top-.6&&roam.Body.Bottom<=engineWork.Bottom+.6,
+                "stroll legs stay inside the real work area");
+            now=now.AddSeconds(10);legs++;
+        }
+        Check(!roam.IsRoaming,"stroll finishes against real surfaces");
+        Check(Math.Abs(roam.Body.Bottom-engineWork.Bottom)<.6,"stroll returns the feet to the real floor");
+        Console.WriteLine($"Roaming geometry: {checks} real desktop checks passed; {surfaces.Count} windows seen.");
+    }
     sealed class CloseWindow(Window window):IDisposable
     {
         public Window Window=>window;
@@ -354,6 +421,11 @@ internal static partial class Program
             {
                 Wait(()=>(string)Read(w,"animationPhase")!="Startup",10,"startup finishes before focus verification");
                 VerifySettingsFocus(w);Field(w,"exitReady",true);w.Close();return 0;
+            }
+            if(args.Contains("--roaming"))
+            {
+                Wait(()=>(string)Read(w,"animationPhase")!="Startup",10,"startup finishes before roaming verification");
+                VerifyRoamingGeometry(w);Field(w,"exitReady",true);w.Close();return 0;
             }
             if(args.Contains("--bubble-scale"))
             {

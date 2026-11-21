@@ -60,6 +60,8 @@ internal sealed class CompanionPreferences
     public bool ForegroundEnabled { get; set; } = true;
     public bool StopModelOnBattery { get; set; } = true;
     public bool HideOnFullscreen { get; set; } = true;
+    // Lets the pet take short walks, climb onto real windows and sit on their edge.
+    public bool RoamingEnabled { get; set; } = true;
     public bool CheckUpdatesOnStartup { get; set; } = true;
     public bool AgentEnabled { get; set; }
     // External MCP clients get a separate pipe with only speech and action tools.
