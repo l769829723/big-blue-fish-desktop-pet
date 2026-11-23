@@ -402,6 +402,7 @@ internal static class Program
                 client.Data("say", new { text = raw });
                 Wait(() => ((TextBlock)Read("bubbleText")).Text == raw, 5, "External text displayed exactly without model");
                 Check((bool)Read("externalBubble"), "External bubble is separate from model result");
+                Check((DateTime)Read("nextSpeech") > DateTime.UtcNow, "External line schedules the next automatic request after typing");
                 Render((Visual)Read("companionLayout"), "mcp-pet.png", (int)pet.Width, (int)pet.Height);
                 Check(client.Data("get_settings").GetProperty("state").GetProperty("modelBusy").GetBoolean() == false, "No local inference for external text");
                 var answer = AnswerPuppet(false, verifyDrag: true);

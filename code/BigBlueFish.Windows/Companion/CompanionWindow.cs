@@ -718,8 +718,12 @@ public partial class MainWindow
         bubbleIsModelReply = true;
         bubbleUntil = DateTime.MaxValue;
         DiagnosticLog.Write(DiagnosticEvent.BubbleShown, kind: "local", chars: text.Length);
-        speech.Show(text, true);
+        // Keep the next automatic request from starting while this reply is still typing.
+        speech.Show(text, true, ScheduleNextSpeech);
     }
+
+    private void ScheduleNextSpeech() =>
+        nextSpeech = DateTime.UtcNow.Add(preferences.NextSpeechDelay(companionRandom));
 
     private void ShowCompanionPartial(string text, long? expectedVersion = null, bool agentTriggered = false)
     {
@@ -741,6 +745,7 @@ public partial class MainWindow
         DiagnosticLog.Write(DiagnosticEvent.BubbleShown, kind: "local", chars: text.Length);
         ShowCompanionPartial(text, agentTriggered: agentTriggered);
         ResetBubbleDeadline();
+        ScheduleNextSpeech();
     }
 
     private void BeginModelSpeech()
@@ -914,7 +919,7 @@ public partial class MainWindow
             return;
         if (bubble.Visibility == Visibility.Visible && now > bubbleUntil)
         { DiagnosticLog.Write(DiagnosticEvent.BubbleClosed, state: "expired"); bubble.Visibility = Visibility.Collapsed; }
-        if (PuppetActive || now < nextSpeech || companionSettings != null || modelInstaller != null
+        if (PuppetActive || now < nextSpeech || speech.IsTyping || companionSettings != null || modelInstaller != null
             || !HasScheduledMcpSpeech && !AgentDailyActive && (speechRequestPending || brain.Busy || weatherRequestPending || !preferences.ModelEnabled || !brain.ModelAvailable || !brain.CanRunOnCurrentPower))
             return;
         if (CompanionNative.IdleSeconds < 8 || CompanionNative.IdleSeconds > 600)
@@ -990,7 +995,6 @@ public partial class MainWindow
             if (version != speechRequestVersion || brain.Busy || weatherRequestPending || companionClosed || exitAnimation || hiddenByUser || fullscreenHidden
                 || !preferences.ModelEnabled || !brain.CanRunOnCurrentPower)
             { DiagnosticLog.Write(DiagnosticEvent.SpeechSkipped, kind: "local", state: brain.Busy || weatherRequestPending ? "busy" : hiddenByUser || fullscreenHidden ? "hidden" : "cancelled"); return; }
-            nextSpeech = DateTime.UtcNow.Add(preferences.NextSpeechDelay(companionRandom));
             BeginModelSpeech(); // A preceding weather request may have ended its own loading indicator.
             text = await brain.Generate(preferences.PublicInfo && preferences.NewsEnabled,
                 preferences.PublicInfo && preferences.WeatherEnabled, preferences.ForegroundEnabled, foregroundHandle, partial =>
@@ -1001,7 +1005,14 @@ public partial class MainWindow
         }
         finally
         {
-            if (version == speechRequestVersion) { speechRequestPending = false; EndModelSpeech(); }
+            if (version == speechRequestVersion)
+            {
+                speechRequestPending = false;
+                EndModelSpeech();
+                // Start the interval after generation instead of at request time, so a slow
+                // model cannot make the next request due while its reply is still arriving.
+                ScheduleNextSpeech();
+            }
         }
         if (version == speechRequestVersion && !companionClosed && !hiddenByUser && !fullscreenHidden && preferences.ModelEnabled && brain.CanRunOnCurrentPower && text.Length > 0)
         {

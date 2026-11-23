@@ -16,13 +16,15 @@ internal sealed class CompanionSpeech(TextBlock text, Border bubble, Action refr
     private int[] boundaries = Array.Empty<int>();
     private int shown;
     private bool subscribed;
+    private Action? finished;
     internal string FullText { get; private set; } = "";
     internal bool IsTyping => timer.IsEnabled;
 
-    internal void Show(string message, bool animate)
+    internal void Show(string message, bool animate, Action? onFinished = null)
     {
         Cancel();
         if (!subscribed) { timer.Tick += Tick; subscribed = true; }
+        finished = onFinished;
         FullText = message;
         boundaries = StringInfo.ParseCombiningCharacters(message);
         shown = animate && boundaries.Length > 0 ? 1 : boundaries.Length;
@@ -30,12 +32,13 @@ internal sealed class CompanionSpeech(TextBlock text, Border bubble, Action refr
         bubble.Visibility = Visibility.Visible;
         refresh();
         if (shown < boundaries.Length) { elapsed.Restart(); timer.Start(); }
-        else completed();
+        else Complete();
     }
 
     internal void ShowPartial(string message)
     {
         Cancel();
+        finished = null;
         if (!subscribed) { timer.Tick += Tick; subscribed = true; }
         FullText = message;
         boundaries = StringInfo.ParseCombiningCharacters(message);
@@ -54,7 +57,14 @@ internal sealed class CompanionSpeech(TextBlock text, Border bubble, Action refr
         if (count <= shown) return;
         shown = count;
         text.Text = Prefix(count);
-        if (shown == boundaries.Length) { Cancel(); completed(); }
+        if (shown == boundaries.Length) Complete();
+    }
+
+    private void Complete()
+    {
+        Cancel();
+        completed();
+        var callback = finished; finished = null; callback?.Invoke();
     }
 
     internal void Cancel() { timer.Stop(); elapsed.Stop(); }

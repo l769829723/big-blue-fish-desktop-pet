@@ -287,6 +287,22 @@ internal static class SpeechFlowVerification
             recovery.GetAwaiter().GetResult();
             Check(((TextBlock)Field(window, "bubbleText")!).Text.Length > 0 && brain.Status == "本地模型就绪", "subsequent real speech recovers without app restart");
             Console.WriteLine("REAL RECOVERY " + ((TextBlock)Field(window, "bubbleText")!).Text);
+            // A reply that is still typing must not be interrupted by the next automatic request,
+            // even when the speech interval elapsed before the model reply became visible.
+            const string pacing = "主人，鱼鱼正在把这句话一个字一个字地显示出来，确认上一句没有说完之前，不会再去请求新的文本，也不会重新转圈加载。";
+            var pacingSpeech = Field(window, "speech")!;
+            bool IsTyping() => (bool)pacingSpeech.GetType().GetProperty("IsTyping", Access)!.GetValue(pacingSpeech)!;
+            Invoke(window, "ShowCompanionBubble", pacing);
+            Check(IsTyping(), "long reply starts typing before the next request window");
+            Check((DateTime)Field(window, "nextSpeech")! > DateTime.UtcNow, "reply display schedules the next request after it appears");
+            Set(window, "nextSpeech", DateTime.UtcNow.AddMinutes(-1));
+            Pump(1200);
+            Check(IsTyping(), "long reply still types during the stale-interval probe");
+            Check(!(bool)Field(window, "speechRequestPending")! && ((FrameworkElement)Field(window, "loadingIndicator")!).Visibility != Visibility.Visible,
+                "expired interval starts no new request while the reply is still typing");
+            Wait(() => !IsTyping(), "long reply finishes typing", 15);
+            Check(((TextBlock)Field(window, "bubbleText")!).Text == pacing, "whole reply is visible after typing");
+            Check((DateTime)Field(window, "nextSpeech")! > DateTime.UtcNow.AddSeconds(20), "next request waits until the reply is fully shown");
 #if !COMPANION_SAFE
             prefs.AgentEnabled = true; prefs.AgentDailySpeech = true;
             var weatherFixture = Field(brain, "weather")!;

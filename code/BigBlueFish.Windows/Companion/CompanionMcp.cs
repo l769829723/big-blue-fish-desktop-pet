@@ -394,7 +394,9 @@ public partial class MainWindow
         externalBubble = true;
         bubbleIsModelReply = false;
         bubbleUntil = DateTime.MaxValue;
-        speech.Show(text, true);
+        // External and Agent lines are still being typed; wait for the whole line
+        // before the next automatic request may start.
+        speech.Show(text, true, ScheduleNextSpeech);
     }
     private bool ConsumeMcpSpeech()
     {

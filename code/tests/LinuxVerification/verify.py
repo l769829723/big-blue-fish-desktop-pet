@@ -24,9 +24,13 @@ def wait(condition, seconds=12):
 def state(): return json.loads((data / 'test-status.json').read_text())
 def command(value):
     temporary=data/'test-command.txt.tmp';temporary.write_text(value);temporary.replace(data/'test-command.txt')
-for name in ['test-status.json','test-error.txt','test-command.txt']:
+for name in ['test-status.json','test-error.txt','test-command.txt','speech-pacing.json']:
     (data / name).unlink(missing_ok=True)
-(data / 'preferences.json').write_text(json.dumps(dict(ModelEnabled=False,PublicInfo=False,CheckUpdatesOnStartup=False,McpEnabled=True,ExternalMcpEnabled=True,PuppetMode=True,RoamingEnabled=False)))
+# McpEnabled is a computed alias of AgentEnabled and is not persisted, so the standard
+# run has to enable the Agent connection explicitly; the Safe edition forces it off.
+initial_preferences = dict(ModelEnabled=False,PublicInfo=False,CheckUpdatesOnStartup=False,ExternalMcpEnabled=True,RoamingEnabled=False)
+if '--safe' not in sys.argv: initial_preferences.update(AgentEnabled=True,PuppetMode=True)
+(data / 'preferences.json').write_text(json.dumps(initial_preferences))
 log = (data / 'app.log').open('w')
 app = subprocess.Popen([str(payload / 'BigBlueFish.Linux'), '--test-mode'], env=env, stdout=log, stderr=log)
 bridge = fixture = None
@@ -34,6 +38,12 @@ roam_fixtures = []
 try:
     wait(lambda: state().get('frames',0) > 10)
     check(app.poll() is None, 'actual self-contained Linux window running')
+    # A line must finish typing before the app asks the model for the next one, even
+    # when the speech interval elapsed before the reply became visible.
+    command('speech-pacing')
+    pacing = wait(lambda: json.loads((data / 'speech-pacing.json').read_text()), 30)
+    check(pacing['checks'] >= 6, 'real bubble finishes typing before requesting the next line')
+    check(not (data / 'test-error.txt').exists(), 'speech pacing regression runs without application errors')
     if '--safe' in sys.argv:
         check(not state()['McpAvailable'] and not state()['Puppet'], 'safe keeps the Agent connection and puppet off')
         check((payload/'BigBlueFish.Mcp').exists() and (payload/'BigBlueFish.Control.dll').exists(), 'safe package bundles the restricted MCP bridge and control layer')
@@ -147,10 +157,11 @@ try:
         external = None
     content('say_next',text='下次自动节奏')
     command('speech-test'); time.sleep(2)
-    check(state()['text']==text and state()['modelPid'] is None,'puppet rejects speech test and does not consume scheduled speech')
+    check(state()['text']==literal and state()['modelPid'] is None,'puppet rejects speech test and does not consume scheduled speech')
     old=state(); x,y=old['X']+250,old['Y']+130
     subprocess.run(['xdotool','mousemove',str(x),str(y),'click','1'],check=True,env=env)
-    time.sleep(.3)
+    # Wait past the 500 ms double-click window so the drag is not taken as a double click.
+    time.sleep(1.0)
     subprocess.run(['xdotool','mousemove',str(x),str(y),'mousedown','1','mousemove',str(x-40),str(y-20),'sleep','.2','mouseup','1'],check=True,env=env)
     time.sleep(1)
     content('get_settings')

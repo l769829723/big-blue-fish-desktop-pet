@@ -14,7 +14,8 @@ internal sealed partial class LinuxPetWindow
         if (!App.Args.Contains("--test-mode")) return;
         if (DateTime.UtcNow >= nextTestStatus) {
             nextTestStatus = DateTime.UtcNow.AddSeconds(1);
-            File.WriteAllText("test-status.json", JsonSerializer.Serialize(new { version = typeof(LinuxPetWindow).Assembly.GetName().Version!.ToString(3), currentAction, phase, frames = player.Frames, animationSeconds=player.PositionSeconds, animationBackend=player.Backend, player.LastReadMs, player.LastUiMs, player.LastCopyMs, player.LastShapeMs, text = bubbleText.Text, bubbleVisible = bubbleFrame.IsVisible, bubbleInPetWindow = ReferenceEquals(bubbleFrame.Parent, petCanvas), loadingInPetWindow = ReferenceEquals(loading.Parent, petCanvas), topmost = Topmost, bubbleReservedHeight, Puppet, McpAvailable, visible = IsVisible, hidden, fullscreenHidden, modelPid = brain.RunnerPid, modelBusy = brain.Busy, modelStatus = brain.Status, generating, settingsOpen = settings != null, contextMenuOpen = ContextMenu?.IsOpen == true, Position.X, Position.Y, mcpPipe = TestPipe,
+            File.WriteAllText("test-status.json", JsonSerializer.Serialize(new { version = typeof(LinuxPetWindow).Assembly.GetName().Version!.ToString(3), currentAction, phase, frames = player.Frames, animationSeconds=player.PositionSeconds, animationBackend=player.Backend, player.LastReadMs, player.LastUiMs, player.LastCopyMs, player.LastShapeMs, text = bubbleText.Text, bubbleVisible = bubbleFrame.IsVisible, bubbleInPetWindow = ReferenceEquals(bubbleFrame.Parent, petCanvas), loadingInPetWindow = ReferenceEquals(loading.Parent, petCanvas), topmost = Topmost, bubbleReservedHeight, Puppet, McpAvailable, visible = IsVisible, hidden, fullscreenHidden, modelPid = brain.RunnerPid, modelBusy = brain.Busy, modelStatus = brain.Status, generating, typing, loadingVisible = loading.IsVisible,
+                nextSpeechSeconds = nextSpeech == DateTime.MinValue ? -1 : Math.Round((nextSpeech - DateTime.UtcNow).TotalSeconds, 1), settingsOpen = settings != null, contextMenuOpen = ContextMenu?.IsOpen == true, Position.X, Position.Y, mcpPipe = TestPipe,
                 roamingEnabled = Preferences.RoamingEnabled, roamState = roam?.State.ToString(), roamTrip = roam?.Trip.ToString(),
                 roamTarget = roam?.Target?.Title, roamTargetTop = roam?.Target?.Bounds.Top, roamBodyBottom = roam?.Body.Bottom,
                 roamBodyCenterX = roam?.Body.CenterX, roamFeetX = roam?.Feet.X, roamFeetY = roam?.Feet.Y,
@@ -29,6 +30,7 @@ internal sealed partial class LinuxPetWindow
                 case "settings-regression": await VerifySettingsRegression(); break;
                 case "close-settings": settings?.Close(); break;
                 case "speech-test": await Speak(false); break;
+                case "speech-pacing": await VerifySpeechPacing(); break;
                 case "weather": await Speak(true); break;
                 case "hide": hidden = true; HideBubble(); Hide(); break;
                 case "show": RestorePet(); break;
@@ -50,6 +52,30 @@ internal sealed partial class LinuxPetWindow
                 default: if (command.StartsWith("bubble ")) ShowText(command[7..], true); break;
             }
         } catch (Exception error) { File.WriteAllText("test-error.txt", error.ToString()); }
+    }
+    async Task VerifySpeechPacing()
+    {
+        int checks = 0;
+        void Check(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); checks++; }
+        const string text = "主人，鱼鱼正在把这句很长的话一个字一个字地显示出来，确认上一句没有说完之前，不会再去请求新的文本，也不会重新转圈加载。";
+        DateTime shownAt = DateTime.UtcNow;
+        ShowText(text, true);
+        // The line itself must reserve the next automatic request before its first character is typed.
+        Check(nextSpeech > shownAt, "an external line schedules the next request when it appears");
+        Check(typing, "the long external line types progressively");
+        // Reproduce a slow model: the interval was already due before the reply became visible.
+        nextSpeech = DateTime.UtcNow.AddMinutes(-1);
+        bool requestedWhileTyping = false;
+        while (typing && DateTime.UtcNow - shownAt < TimeSpan.FromSeconds(20))
+        {
+            if (generating || brain.Busy || loading.IsVisible) requestedWhileTyping = true;
+            await Task.Delay(50);
+        }
+        Check(!typing, "the progressive line finishes inside the test window");
+        Check(bubbleText.Text == text, "the whole line is visible after typing");
+        Check(!requestedWhileTyping, "no generation starts while the line is still typing");
+        Check(nextSpeech > DateTime.UtcNow.AddSeconds(60), "the next request waits until after the line is fully shown");
+        File.WriteAllText("speech-pacing.json", JsonSerializer.Serialize(new { checks, text, seconds = Math.Round((DateTime.UtcNow - shownAt).TotalSeconds, 2) }));
     }
     async Task VerifySettingsRegression()
     {

@@ -308,6 +308,7 @@ internal sealed partial class LinuxPetWindow : Window
         greetingNoticeActive = false;
         DiagnosticLog.Write(DiagnosticEvent.BubbleShown, kind: external ? "agent" : fromModel ? "local" : "notice", chars: text.Length);
         fullText = text; textBoundaries = StringInfo.ParseCombiningCharacters(text); externalSpeech = external; modelReply = fromModel;
+        if (external || fromModel) nextSpeech = DateTime.UtcNow.Add(Preferences.NextSpeechDelay(random));
         typing = !immediate && textBoundaries.Length > 1; typingClock.Restart(); bubbleUntil = DateTime.MaxValue;
         bubbleText.Text = typing ? text[..textBoundaries[1]] : text;
         MoveBubble(); if (!hidden && !fullscreenHidden) ShowBubble(); if (!typing && phase is not ("Startup" or "Exit")) ResetDwell();
@@ -405,10 +406,15 @@ internal sealed partial class LinuxPetWindow : Window
         {
             int count = Math.Min(textBoundaries.Length, 1 + (int)(typingClock.Elapsed.TotalSeconds * 28));
             bubbleText.Text = count >= textBoundaries.Length ? fullText : fullText[..textBoundaries[count]];
-            if (count == textBoundaries.Length) { typing = false; ResetDwell(); }
+            if (count == textBoundaries.Length)
+            {
+                typing = false; ResetDwell();
+                // Wait until the current reply is fully visible before starting the next interval.
+                if (modelReply || externalSpeech) nextSpeech = now.Add(Preferences.NextSpeechDelay(random));
+            }
         }
         if (now >= bubbleUntil) HideBubble();
-        if (Puppet || dragging || settings != null || modelInstalling || now < nextSpeech) return;
+        if (Puppet || dragging || settings != null || modelInstalling || typing || now < nextSpeech) return;
         if (nextExternalText == null && !AgentDailyActive && (generating || brain.Busy || !Preferences.ModelEnabled || !brain.ModelAvailable || !brain.CanRunOnCurrentPower)) return;
         if (CompanionNative.IdleSeconds < 8 || CompanionNative.IdleSeconds > 600) { nextSpeech = now.AddSeconds(30); return; }
         if (nextExternalText != null) { string text = nextExternalText; nextExternalText = null; SayExternal(text); nextSpeech = now.Add(Preferences.NextSpeechDelay(random)); }
@@ -427,15 +433,20 @@ internal sealed partial class LinuxPetWindow : Window
             var until = DateTime.UtcNow.AddSeconds(100);
             while (brain.Busy && DateTime.UtcNow < until && version == speechVersion) await Task.Delay(100);
             if (brain.Busy || version != speechVersion || Puppet && !agentTriggered || hidden || fullscreenHidden) return;
-            nextSpeech = DateTime.UtcNow.Add(Preferences.NextSpeechDelay(random));
             var text = weather ? await brain.GenerateWeather(p => Partial(p, version, agentTriggered)) : await brain.Generate(
                 Preferences.PublicInfo && Preferences.NewsEnabled, Preferences.PublicInfo && Preferences.WeatherEnabled,
                 Preferences.ForegroundEnabled, lastForeground, p => Partial(p, version, agentTriggered), chatty: Preferences.Chatty);
             if (version != speechVersion || Puppet && !agentTriggered || hidden || fullscreenHidden || closed || !Preferences.ModelEnabled || !brain.CanRunOnCurrentPower) return;
-            if (text.Length > 0) { if (streamed) { fullText = text; bubbleText.Text = text; ResetDwell(); } else ShowText(text, false, fromModel: true); }
+            if (text.Length > 0) { if (streamed) { fullText = text; bubbleText.Text = text; ResetDwell(); nextSpeech = DateTime.UtcNow.Add(Preferences.NextSpeechDelay(random)); } else ShowText(text, false, fromModel: true); }
             else if (streamed && !externalSpeech) HideBubble();
         }
-        finally { generating = false; loading.IsVisible = false; }
+        finally
+        {
+            generating = false; loading.IsVisible = false;
+            // Start the interval after generation instead of at request time, so a slow model
+            // cannot make the next request due while its reply is still arriving.
+            if (version == speechVersion) nextSpeech = DateTime.UtcNow.Add(Preferences.NextSpeechDelay(random));
+        }
     }
     void SayExternal(string text) { speechVersion++; brain.CancelGeneration(); loading.IsVisible = false; ShowText(text, true); }
     async Task SpeakManual(bool weather)
